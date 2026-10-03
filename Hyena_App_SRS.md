@@ -1,6 +1,6 @@
 # Hyena App Software Requirements Specification
 
-**Version:** 0.2 — Draft aligned with the Week 7 SRS template  
+**Version:** 1.0
 **Date:** October 3, 2026
 
 ## Title Page
