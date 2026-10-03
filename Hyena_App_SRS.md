@@ -11,7 +11,7 @@ Hyena App
 
 ### Team Members
 
-Joseph Tolley. Additional team members have not been specified in this draft.
+Joseph Tolley
 
 ### Description of Project
 
@@ -248,8 +248,5 @@ These are planned checks, not reported test results. Use the functional requirem
 ### Sources Citation and Resource Links
 
 - Project repository: [omgitzjoe/HyenaApp](https://github.com/omgitzjoe/HyenaApp).
-- Required document structure: the supplied `SRSTemplate (1).docx` for Week 7.
-- Requirements source: the existing Hyena App SRS draft and the project decisions discussed on October 3, 2026.
-- Baseline source: the earlier repository review and Android setup notes described in the existing draft. The repository was not rechecked during this format conversion.
 
 The companion SDD should specify screen navigation, API contracts, PostgreSQL columns and constraints, and recurrence generation. Proposed thresholds and open decisions require project review before this draft becomes the final requirements baseline.
