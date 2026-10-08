@@ -73,7 +73,16 @@ fun HyenaApp() {
                     }
                 )
 
-                "Explore" -> ExploreScreen(modifier = screenModifier)
+                "Explore" -> ExploreScreen(
+                    modifier = screenModifier,
+                    onExperienceClick = { title, business, schedule, offer ->
+                        detailTitle = title
+                        detailBusiness = business
+                        detailSchedule = schedule
+                        detailOffer = offer
+                        showingDetails = true
+                    }
+                )
                 "Saved" -> SavedScreen(modifier = screenModifier)
             }
         }
