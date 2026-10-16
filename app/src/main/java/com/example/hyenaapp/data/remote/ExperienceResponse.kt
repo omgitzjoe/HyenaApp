@@ -1,0 +1,24 @@
+package com.example.hyenaapp.data.remote
+
+data class ExperienceResponse(
+    val items: List<ExperienceDto>,
+    val count: Int
+)
+
+data class ExperienceDto(
+    val id: String,
+    val title: String,
+    val description: String,
+    val businessName: String,
+    val city: String,
+    val priceAmount: String?,
+    val currency: String?,
+    val offer: String?,
+    val scheduleKind: String,
+    val startDate: String,
+    val endDate: String?,
+    val startTime: String,
+    val endTime: String,
+    val endsNextDay: Boolean,
+    val timeZone: String
+)
