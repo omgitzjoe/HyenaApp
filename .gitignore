@@ -13,3 +13,10 @@
 .externalNativeBuild
 .cxx
 local.properties
+# Backend config
+/backend/.env
+backend/.env.*
+!backend/.env.example
+
+# Local database certificates
+backend/certs/
