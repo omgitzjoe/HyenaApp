@@ -13,6 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+
 # Backend config
 /backend/.env
 backend/.env.*
@@ -20,3 +21,5 @@ backend/.env.*
 
 # Local database certificates
 backend/certs/
+
+backend/node_modules/
