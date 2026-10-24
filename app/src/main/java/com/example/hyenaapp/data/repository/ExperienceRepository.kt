@@ -4,8 +4,8 @@ import com.example.hyenaapp.data.remote.ApiClient
 import com.example.hyenaapp.domain.model.Experience
 
 object ExperienceRepository {
-    suspend fun getExperiences(): List<Experience> {
-        return ApiClient.api.getExperiences().items.map { dto ->
+    suspend fun getExperiences(query: String = ""): List<Experience> {
+        return ApiClient.api.getExperiences(query).items.map { dto ->
             val scheduleLabel = when (dto.scheduleKind) {
                 "ONCE" -> "One-time · ${dto.startDate.take(10)}"
                 else -> "Weekly"

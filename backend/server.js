@@ -32,6 +32,23 @@ app.get("/health/db", async (req, res) => {
     }
 });
 app.get("/api/v1/experiences", async (req, res) => {
+    const search = req.query.q ?? "";
+
+    if (typeof search !== "string" || search.length > 100) {
+        return res.status(400).json({
+            error: {
+                code: "INVALID_SEARCH",
+                message: "Search must be text with at most 100 characters."
+            }
+        });
+    }
+
+    const query = search.trim();
+
+    // Treat %, _, and backslashes as literal search characters.
+    const escapedQuery = query.replace(/[\\%_]/g, "\\$&");
+    const pattern = `%${escapedQuery}%`;
+
     try {
         const result = await pool.query(`
             SELECT
@@ -57,9 +74,22 @@ app.get("/api/v1/experiences", async (req, res) => {
             WHERE e.is_active = TRUE
                 AND b.is_active = TRUE
                 AND a.is_active = TRUE
+                AND (
+                    e.title ILIKE $1
+                    OR e.description ILIKE $1
+                    OR b.name ILIKE $1
+                    OR e.price_label ILIKE $1
+                    OR EXISTS (
+                        SELECT 1
+                        FROM experience_categories ec
+                        JOIN categories c ON c.id = ec.category_id
+                        WHERE ec.experience_id = e.id
+                            AND c.name ILIKE $1
+                    )
+                )
             ORDER BY e.title, e.id
             LIMIT 20
-        `);
+        `, [pattern]);
 
         res.json({
             items: result.rows,
