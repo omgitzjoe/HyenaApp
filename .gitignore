@@ -23,3 +23,5 @@ backend/.env.*
 backend/certs/
 
 backend/node_modules/
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/markdown.xml
