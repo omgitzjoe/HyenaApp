@@ -193,3 +193,9 @@ Android formatting tests are in `app/src/test`; run `./gradlew :app:testDebugUni
 ## Updating this branch locally
 
 After pulling changes, run `npm ci` in `backend` and restart the API. Sync Gradle and run Android Studio's debug build. Check the Wi-Fi IP in `ApiClient.kt` if the phone cannot reach the backend. Empty Today/Now results can be legitimate; use All dates to distinguish unavailable schedules from connectivity errors. Existing SQL tables need no migration for this change.
+
+### Android area selection
+
+Home and Explore load active areas from `GET /api/v1/areas`. Selecting an area sends its `areaId` with the existing search and time-window filters. The selection is shared across both tabs and restored across activity recreation. All areas omits `areaId`. If an area is no longer active when the list reloads, selection resets to All areas. This is manual area selection; GPS is not required.
+
+After pulling, sync and build in Android Studio. Select an area on Home, switch to Explore, and confirm it stays selected. Try search and each time window, then All areas. Also check Retry areas with the API temporarily stopped. Android build verification remains pending because this environment cannot download Gradle.

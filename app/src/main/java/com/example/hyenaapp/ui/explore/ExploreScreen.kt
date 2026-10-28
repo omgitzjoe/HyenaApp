@@ -24,12 +24,15 @@ import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.domain.model.Experience
 import com.example.hyenaapp.ui.components.ExperienceCard
 import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
+import com.example.hyenaapp.ui.components.DiscoveryAreaPicker
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
 
 @Composable
 fun ExploreScreen(
     modifier: Modifier = Modifier,
+    selectedAreaId: String? = null,
+    onAreaChange: (String?) -> Unit = {},
     onExperienceClick: (String, String, String, String) -> Unit = { _, _, _, _ -> }
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -43,7 +46,7 @@ fun ExploreScreen(
 
     val query = searchQuery.trim()
 
-    LaunchedEffect(query, selectedWindow, reloadKey) {
+    LaunchedEffect(query, selectedWindow, selectedAreaId, reloadKey) {
         isLoading = true
         errorMessage = null
 
@@ -52,7 +55,7 @@ fun ExploreScreen(
                 delay(300)
             }
 
-            experiences = ExperienceRepository.getExperiences(query, selectedWindow)
+            experiences = ExperienceRepository.getExperiences(query, selectedWindow, selectedAreaId)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -86,6 +89,10 @@ fun ExploreScreen(
         }
 
         item {
+            DiscoveryAreaPicker(selectedAreaId = selectedAreaId, onAreaChange = onAreaChange)
+        }
+
+        item {
             DiscoveryWindowPicker(
                 selectedWindow = selectedWindow,
                 onWindowChange = { selectedWindow = it }
@@ -115,9 +122,9 @@ fun ExploreScreen(
                 item {
                     Text(
                         text = if (query.isEmpty()) {
-                            "No experiences match this time window. Try All dates."
+                            "No experiences match this area and time window. Try All dates."
                         } else {
-                            "No experiences match your search and time window."
+                            "No experiences match your search, area, and time window."
                         }
                     )
                 }

@@ -22,11 +22,14 @@ import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.domain.model.Experience
 import com.example.hyenaapp.ui.components.ExperienceCard
 import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
+import com.example.hyenaapp.ui.components.DiscoveryAreaPicker
 import kotlin.coroutines.cancellation.CancellationException
 
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
+    selectedAreaId: String? = null,
+    onAreaChange: (String?) -> Unit = {},
     onExperienceClick: (String, String, String, String) -> Unit = { _, _, _, _ -> }
 ) {
     var experiences by remember {
@@ -37,12 +40,12 @@ fun HomeScreen(
     var reloadKey by remember { mutableStateOf(0) }
     var selectedWindow by rememberSaveable { mutableStateOf("today") }
 
-    LaunchedEffect(selectedWindow, reloadKey) {
+    LaunchedEffect(selectedWindow, selectedAreaId, reloadKey) {
         isLoading = true
         errorMessage = null
 
         try {
-            experiences = ExperienceRepository.getExperiences(window = selectedWindow)
+            experiences = ExperienceRepository.getExperiences(window = selectedWindow, areaId = selectedAreaId)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -73,6 +76,10 @@ fun HomeScreen(
         }
 
         item {
+            DiscoveryAreaPicker(selectedAreaId = selectedAreaId, onAreaChange = onAreaChange)
+        }
+
+        item {
             DiscoveryWindowPicker(
                 selectedWindow = selectedWindow,
                 onWindowChange = { selectedWindow = it }
@@ -100,7 +107,7 @@ fun HomeScreen(
 
             experiences.isEmpty() -> {
                 item {
-                    Text(text = "No experiences match this time window. Try another window or All dates.")
+                    Text(text = "No experiences match this area and time window. Try another window or All dates.")
                 }
             }
 

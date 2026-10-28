@@ -647,3 +647,7 @@ The table includes both current and future verification. The implemented backend
 - [PostgreSQL date and time types](https://www.postgresql.org/docs/current/datatype-datetime.html) — reference for separating stored instants from local times and named time zones.
 
 This SDD is a working design for the current requirements. Update it alongside implementation when a proposal changes, keeping API contracts, migrations, Android models, and test expectations consistent.
+
+### Implemented area selector
+
+Home and Explore share a manually selected discovery area, saved across activity recreation. Both use active areas from `/api/v1/areas` and combine `areaId` with search and time-window parameters. All areas removes this constraint. Area loading has error and retry states; a removed or inactive selection resets when the area list reloads. Device location permission is not required.

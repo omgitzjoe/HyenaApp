@@ -21,6 +21,8 @@ import com.example.hyenaapp.ui.saved.SavedScreen
 fun HyenaApp() {
     val tabs = listOf("Home", "Explore", "Saved")
 
+    var selectedAreaId by rememberSaveable { mutableStateOf<String?>(null) }
+
     var selectedTab by rememberSaveable { mutableStateOf("Home") }
     var showingDetails by rememberSaveable { mutableStateOf(false) }
 
@@ -64,6 +66,8 @@ fun HyenaApp() {
             when (selectedTab) {
                 "Home" -> HomeScreen(
                     modifier = screenModifier,
+                    selectedAreaId = selectedAreaId,
+                    onAreaChange = { selectedAreaId = it },
                     onExperienceClick = { title, business, schedule, offer ->
                         detailTitle = title
                         detailBusiness = business
@@ -75,6 +79,8 @@ fun HyenaApp() {
 
                 "Explore" -> ExploreScreen(
                     modifier = screenModifier,
+                    selectedAreaId = selectedAreaId,
+                    onAreaChange = { selectedAreaId = it },
                     onExperienceClick = { title, business, schedule, offer ->
                         detailTitle = title
                         detailBusiness = business

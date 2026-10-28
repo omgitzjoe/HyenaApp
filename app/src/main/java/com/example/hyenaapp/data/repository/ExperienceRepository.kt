@@ -11,9 +11,10 @@ import java.util.Locale
 object ExperienceRepository {
     suspend fun getExperiences(
         query: String = "",
-        window: String = "today"
+        window: String = "today",
+        areaId: String? = null
     ): List<Experience> {
-        return ApiClient.api.getExperiences(query, window).items.map { dto ->
+        return ApiClient.api.getExperiences(query, window, areaId).items.map { dto ->
             val scheduleLabel = when (dto.scheduleKind) {
                 "ONCE" -> "One-time · ${dto.startDate.take(10)}"
                 else -> "Weekly"
