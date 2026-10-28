@@ -99,7 +99,7 @@ Search matches titles, descriptions, business names, offer text, and category na
 | `categoryId` | Optional UUID of an existing category |
 | `limit` | Integer from 1 to 100, default 20 |
 
-Today and Tonight use each venue schedule's named time zone. Today spans the local calendar day; Tonight spans 17:00 to the next midnight. Both omit occurrences that have already ended. Now includes only occurrences already started and not ended. All interval endpoints are half-open: an event ending exactly at the filter's start is excluded.
+Today and Tonight use the optional `timeZone` query parameter (the Android app sends the phone’s IANA zone); older API callers that omit it retain venue-local windows. Today spans the local calendar day; Tonight spans 17:00 to the next midnight. Both omit occurrences that have already ended. Now includes only occurrences already started and not ended. All interval endpoints are half-open: an event ending exactly at the filter's start is excluded.
 
 Examples:
 
@@ -111,9 +111,9 @@ http://localhost:4010/api/v1/experiences?window=date&date=2026-11-01
 http://localhost:4010/api/v1/experiences?window=all&limit=100
 ```
 
-Selected-date searches can include historical occurrences, marked `EXPIRED`. All dates explicitly browses active listings regardless of schedule expiry and returns `nextOccurrence: null`. It is useful when testing old seed fixtures. The Android Home and Explore screens provide Today, Tonight, Now, and All dates chips; selected-date, area, and category parameters are currently API-only controls.
+Selected-date searches can include historical occurrences, marked `EXPIRED`. All dates explicitly browses active listings regardless of schedule expiry and returns a representative dated occurrence when resolvable (the next unexpired weekly occurrence, otherwise a historical/first occurrence). It is useful when testing old seed fixtures. The Android Home and Explore screens provide Today, Tonight, Now, and All dates chips; selected-date and category parameters remain API-only controls. Area selection is available as a fallback to Near me.
 
-Time-filtered items retain the existing flat listing fields and add `nextOccurrence` containing `startsAt`, `endsAt`, `timeZone`, `localDate`, and `status` (`UPCOMING`, `ONGOING`, or `EXPIRED`). UTC timestamps are formatted in the venue zone on Android, including the end date for overnight events. A recurring listing appears once, with its earliest matching occurrence.
+Time-filtered items retain the existing flat listing fields and add `nextOccurrence` containing `startsAt`, `endsAt`, `timeZone`, `localDate`, and `status` (`UPCOMING`, `ONGOING`, or `EXPIRED`). UTC timestamps are formatted in the phone’s zone on Android, including the end date for overnight events. A recurring listing appears once, with its earliest matching occurrence.
 
 Weekly effective dates constrain occurrence start dates, including overnight events that end the following morning. Daylight-saving gaps shift nonexistent times forward by the gap duration. Repeated times use the earlier start and later end. Nonpositive resolved intervals are omitted; malformed schedules are skipped and their listing IDs logged for curator correction. Time-zone handling uses `@js-temporal/polyfill`.
 
@@ -199,3 +199,21 @@ After pulling changes, run `npm ci` in `backend` and restart the API. Sync Gradl
 Home and Explore load active areas from `GET /api/v1/areas`. Selecting an area sends its `areaId` with the existing search and time-window filters. The selection is shared across both tabs and restored across activity recreation. All areas omits `areaId`. If an area is no longer active when the list reloads, selection resets to All areas. This is manual area selection; GPS is not required.
 
 After pulling, sync and build in Android Studio. Select an area on Home, switch to Explore, and confirm it stays selected. Try search and each time window, then All areas. Also check Retry areas with the API temporarily stopped. Android build verification remains pending because this environment cannot download Gradle.
+
+### Near me and viewer-local times
+
+Tap **Near me** to request foreground location permission; approximate permission is supported. The app obtains a one-time fix, defaults to 10 miles, and offers 5/10/25-mile radii. Refresh location after moving. Permission denial, disabled providers, failure, or timeout keeps manual area selection available. Location is held in memory and cleared on activity recreation, not stored in preferences or the database. No background location permission or tracking is used. The API receives coordinates for filtering; production request/proxy logs should avoid recording coordinate query strings.
+
+Additional query parameters:
+
+| Parameter | Meaning |
+| --- | --- |
+| `timeZone` | Optional IANA viewer zone; Android sends the phone zone and refreshes it on resume. Invalid zones return 400. |
+| `latitude`, `longitude` | Supply both; numeric bounds −90…90 and −180…180. |
+| `radiusMiles` | Defaults to 10 when coordinates are supplied; range 1…100. Coordinates are required. |
+
+Proximity and `areaId` are mutually exclusive. Search, category, distance, activity flags, and occurrence matching are combined before the result limit. Distance is great-circle distance from the supplied position to each business, returned as `distanceMiles`. Venues lacking coordinates are excluded from Near me but remain accessible through manual browsing. No geocoding or area-center substitution occurs. Existing chronological ordering is retained. The implementation evaluates candidates in memory and is suitable for this curated prototype; indexing/PostGIS is a future scaling step.
+
+Schedule rules and DST resolution remain in the venue zone. Only the filter boundaries use the viewer zone; the service translates those boundaries back to venue dates before checking recurrence and overnight starts. Now remains invariant across zones. Android formats occurrence instants, dates, and overnight end dates in the phone zone, labeled with its zone ID. All dates uses a representative dated occurrence, including historical ones; it does not convert a recurring wall time without a date.
+
+After pulling: restart `npm start`, sync Gradle, then run on the phone. Test granting approximate/precise permission, denying permission, disabling location, choosing fallback areas, changing radii, switching tabs, and changing the phone time zone. Near me can legitimately be empty because the seed venues are fictional coordinates. For emulator tests, set a position near a seeded venue (Rexburg: 43.8231, −111.7924). No SQL migration or reseeding is required.

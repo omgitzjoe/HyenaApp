@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.repository.ExperienceRepository
+import com.example.hyenaapp.data.repository.NearbyLocation
 import com.example.hyenaapp.domain.model.Experience
 import com.example.hyenaapp.ui.components.ExperienceCard
 import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
@@ -29,6 +30,10 @@ import kotlin.coroutines.cancellation.CancellationException
 fun HomeScreen(
     modifier: Modifier = Modifier,
     selectedAreaId: String? = null,
+    nearby: NearbyLocation? = null,
+    radiusMiles: Int = 10,
+    timeZone: String = java.time.ZoneId.systemDefault().id,
+    locationControls: @Composable () -> Unit = {},
     onAreaChange: (String?) -> Unit = {},
     onExperienceClick: (String, String, String, String) -> Unit = { _, _, _, _ -> }
 ) {
@@ -40,12 +45,12 @@ fun HomeScreen(
     var reloadKey by remember { mutableStateOf(0) }
     var selectedWindow by rememberSaveable { mutableStateOf("today") }
 
-    LaunchedEffect(selectedWindow, selectedAreaId, reloadKey) {
+    LaunchedEffect(selectedWindow, selectedAreaId, nearby, radiusMiles, timeZone, reloadKey) {
         isLoading = true
         errorMessage = null
 
         try {
-            experiences = ExperienceRepository.getExperiences(window = selectedWindow, areaId = selectedAreaId)
+            experiences = ExperienceRepository.getExperiences(window = selectedWindow, areaId = selectedAreaId, timeZone = timeZone, nearby = nearby, radiusMiles = radiusMiles)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -75,8 +80,10 @@ fun HomeScreen(
             )
         }
 
-        item {
-            DiscoveryAreaPicker(selectedAreaId = selectedAreaId, onAreaChange = onAreaChange)
+        item { locationControls() }
+
+        if (nearby == null) {
+            item { DiscoveryAreaPicker(selectedAreaId = selectedAreaId, onAreaChange = onAreaChange) }
         }
 
         item {
@@ -107,7 +114,7 @@ fun HomeScreen(
 
             experiences.isEmpty() -> {
                 item {
-                    Text(text = "No experiences match this area and time window. Try another window or All dates.")
+                    Text(text = "No experiences match this location and time window. Try another window or All dates.")
                 }
             }
 

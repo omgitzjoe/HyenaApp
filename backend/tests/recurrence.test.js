@@ -72,14 +72,14 @@ test('filtering happens before result limit, with deterministic tie-breaks', () 
 });
 test('all dates explicitly retains expired schedules', () => {
     const r = evaluateCandidates([{...base,startDate:'2020-01-01',endDate:'2020-01-01'}],filters('all'),now);
-    assert.equal(r.count,1); assert.equal(r.items[0].nextOccurrence,null);
+    assert.equal(r.count,1); assert.equal(r.items[0].nextOccurrence.status,"EXPIRED");
 });
 test('one invalid zone does not break the feed', () => {
     const warnings=[];
     const r=evaluateCandidates([{...base,id:'invalid',timeZone:'Not/AZone'},base],filters(),now,id=>warnings.push(id));
     assert.equal(r.count,1); assert.deepEqual(warnings,['invalid']);
 });
-test('query defaults and trimming',()=>assert.deepEqual(parseDiscoveryQuery({q:' music '}),{search:'music',window:'today',date:null,limit:20,areaId:null,categoryId:null}));
+test('query defaults and trimming',()=>assert.deepEqual(parseDiscoveryQuery({q:' music '}),{search:'music',window:'today',date:null,timeZone:null,proximity:null,limit:20,areaId:null,categoryId:null}));
 for (const [name,query] of Object.entries({
     'invalid window':{window:'year'}, 'window array':{window:['today']}, 'missing selected date':{window:'date'},
     'invalid calendar date':{window:'date',date:'2026-02-30'}, 'date without date window':{date:'2026-10-28'},
@@ -87,3 +87,38 @@ for (const [name,query] of Object.entries({
     'too-large limit':{limit:'101'}, 'fractional limit':{limit:'2.5'}, 'limit array':{limit:['20']},
     'invalid area':{areaId:'bad'}, 'invalid category':{categoryId:'bad'}, 'unsupported cursor':{cursor:'abc'}
 })) test(`rejects ${name}`,()=>assert.throws(()=>parseDiscoveryQuery(query),DiscoveryQueryError));
+
+test('viewer tonight uses Denver evening rather than New York evening', () => {
+    const event = { ...base, timeZone: 'America/New_York', startTime: '18:00', endTime: '19:00' };
+    assert.ok(findOccurrence(event, filters('tonight'), now));
+    assert.equal(findOccurrence(event, { ...filters('tonight'), timeZone: 'America/Denver' }, now), null);
+});
+test('viewer date includes following venue calendar day', () => {
+    const event = { ...base, timeZone: 'UTC', startDate: '2026-10-29', endDate: '2026-10-29', startTime: '01:00', endTime: '02:00' };
+    assert.equal(findOccurrence(event, { ...filters('date', '2026-10-28'), timeZone: 'America/Denver' }, now).startsAt, '2026-10-29T01:00:00Z');
+});
+test('viewer date handles international date line', () => {
+    const event = { ...base, timeZone: 'Pacific/Kiritimati', startDate: '2026-10-29', endDate: '2026-10-29', startTime: '12:00', endTime: '13:00' };
+    assert.ok(findOccurrence(event, { ...filters('date', '2026-10-28'), timeZone: 'Pacific/Honolulu' }, now));
+});
+test('now is independent of viewer time zone', () => {
+    const event = { ...base, timeZone: 'UTC', startTime: '17:00', endTime: '19:00' };
+    for (const timeZone of ['Pacific/Kiritimati', 'Pacific/Honolulu', 'America/New_York']) {
+        assert.equal(findOccurrence(event, { ...filters('now'), timeZone }, now).status, 'ONGOING');
+    }
+});
+test('viewer midnight excludes exact end boundary', () => {
+    const event = { ...base, timeZone: 'UTC', startTime: '05:00', endTime: '06:00' };
+    assert.equal(findOccurrence(event, { ...filters('date', '2026-10-28'), timeZone: 'America/Denver' }, now), null);
+});
+test('proximity defaults to ten miles and accepts zero coordinates', () => {
+    assert.deepEqual(parseDiscoveryQuery({ latitude: '0', longitude: '0' }).proximity, { latitude: 0, longitude: 0, radiusMiles: 10 });
+});
+for (const query of [
+    { latitude: '91', longitude: '0' }, { latitude: '0', longitude: '-181' },
+    { latitude: 'NaN', longitude: '0' }, { latitude: '', longitude: '0' },
+    { latitude: '0' }, { radiusMiles: '10' }, { latitude: ['0'], longitude: '0' },
+    { latitude: '0', longitude: '0', radiusMiles: '0' }, { latitude: '0', longitude: '0', radiusMiles: '101' },
+    { latitude: '0', longitude: '0', areaId: '00000000-0000-0000-0000-000000000000' },
+    { timeZone: 'Mars/Anywhere' }, { timeZone: ['UTC'] }, { timeZone: '+02:00' }
+]) test(`rejects malformed location/time zone ${JSON.stringify(query)}`, () => assert.throws(() => parseDiscoveryQuery(query), DiscoveryQueryError));

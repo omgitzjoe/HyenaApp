@@ -17,21 +17,23 @@ function resolveLocal(dateTime, timeZone, boundary) {
 function findOccurrence(schedule, filters, now) {
     const instant = asInstant(now);
     const zone = schedule.timeZone;
+    const windowZone = filters.timeZone || zone;
     const target = filters.window === "date"
         ? Temporal.PlainDate.from(filters.date)
-        : instant.toZonedDateTimeISO(zone).toPlainDate();
+        : instant.toZonedDateTimeISO(windowZone).toPlainDate();
     const windowStart = filters.window === "tonight"
-        ? target.toPlainDateTime("17:00").toZonedDateTime(zone, { disambiguation: "compatible" }).toInstant()
-        : target.toZonedDateTime(zone).toInstant();
-    const windowEnd = target.add({ days: 1 }).toZonedDateTime(zone).toInstant();
+        ? target.toPlainDateTime("17:00").toZonedDateTime(windowZone, { disambiguation: "compatible" }).toInstant()
+        : target.toZonedDateTime(windowZone).toInstant();
+    const windowEnd = target.add({ days: 1 }).toZonedDateTime(windowZone).toInstant();
     if (Temporal.Instant.compare(windowStart, windowEnd) >= 0) return null;
     if (!["ONCE", "WEEKLY"].includes(schedule.scheduleKind)) throw new RangeError("Unknown schedule kind");
     const effectiveStart = Temporal.PlainDate.from(schedule.startDate);
     const effectiveEnd = schedule.endDate ? Temporal.PlainDate.from(schedule.endDate) : null;
     let next = null;
-    // Include yesterday's start to find an overnight event still running today.
-    for (let offset = -1; offset <= 0; offset++) {
-        const day = target.add({ days: offset });
+    // Translate viewer boundaries to venue dates, including overnight starts.
+    const first = windowStart.toZonedDateTimeISO(zone).toPlainDate().subtract({ days: 1 });
+    const last = windowEnd.toZonedDateTimeISO(zone).toPlainDate();
+    for (let day = first; Temporal.PlainDate.compare(day, last) <= 0; day = day.add({ days: 1 })) {
         if (Temporal.PlainDate.compare(day, effectiveStart) < 0) continue;
         if (effectiveEnd && Temporal.PlainDate.compare(day, effectiveEnd) > 0) continue;
         if (schedule.scheduleKind === "ONCE" && !day.equals(effectiveStart)) continue;
@@ -61,7 +63,27 @@ function evaluateCandidates(rows, filters, now, onInvalid = () => {}) {
     const matches = [];
     for (const row of rows) {
         if (filters.window === "all") {
-            matches.push({ ...row, nextOccurrence: null });
+            let displayOccurrence = null;
+            try {
+                const localToday = asInstant(now).toZonedDateTimeISO(filters.timeZone || row.timeZone).toPlainDate();
+                if (row.scheduleKind === "ONCE") {
+                    // ONCE start dates belong to the venue, not the viewer.
+                    displayOccurrence = findOccurrence(row, { ...filters, window: "date", date: row.startDate, timeZone: row.timeZone }, now);
+                } else {
+                    for (let offset = 0; offset < 8 && !displayOccurrence; offset++) {
+                        const date = localToday.add({ days: offset }).toString();
+                        const candidate = findOccurrence(row, { ...filters, window: "date", date }, now);
+                        if (candidate && candidate.status !== "EXPIRED") displayOccurrence = candidate;
+                    }
+                    if (!displayOccurrence) {
+                        for (let offset = 0; offset < 7 && !displayOccurrence; offset++) {
+                            const date = Temporal.PlainDate.from(row.startDate).add({ days: offset }).toString();
+                            displayOccurrence = findOccurrence(row, { ...filters, window: "date", date, timeZone: row.timeZone }, now);
+                        }
+                    }
+                }
+            } catch (error) { if (!(error instanceof RangeError)) throw error; }
+            matches.push({ ...row, nextOccurrence: displayOccurrence });
             continue;
         }
         try {

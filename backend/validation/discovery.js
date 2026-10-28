@@ -43,8 +43,25 @@ function parseDiscoveryQuery(query) {
     if (query.cursor !== undefined) {
         throw new DiscoveryQueryError("UNSUPPORTED_CURSOR", "Cursor pagination is not available yet.");
     }
+    let timeZone = null;
+    if (query.timeZone !== undefined) {
+        try {
+            if (typeof query.timeZone !== "string" || query.timeZone.length > 100 || /^[+-]/.test(query.timeZone)) throw new RangeError();
+            Temporal.Instant.from("2026-01-01T00:00Z").toZonedDateTimeISO(query.timeZone);
+            timeZone = query.timeZone;
+        } catch { throw new DiscoveryQueryError("INVALID_TIME_ZONE", "Provide a valid IANA time zone."); }
+    }
+    let proximity = null;
+    if ([query.latitude, query.longitude, query.radiusMiles].some(v => v !== undefined)) {
+        const number = (value, min, max) => typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value)) && Number(value) >= min && Number(value) <= max;
+        if (!number(query.latitude, -90, 90) || !number(query.longitude, -180, 180) || !number(query.radiusMiles ?? "10", 1, 100)) {
+            throw new DiscoveryQueryError("INVALID_PROXIMITY", "Provide latitude, longitude, and a radius from 1 to 100 miles.");
+        }
+        if (query.areaId !== undefined) throw new DiscoveryQueryError("INVALID_PROXIMITY", "Choose proximity or area filtering, not both.");
+        proximity = { latitude: Number(query.latitude), longitude: Number(query.longitude), radiusMiles: Number(query.radiusMiles ?? 10) };
+    }
     return {
-        search: search.trim(), window, date, limit: Number(rawLimit),
+        search: search.trim(), window, date, timeZone, proximity, limit: Number(rawLimit),
         areaId: query.areaId ?? null, categoryId: query.categoryId ?? null
     };
 }

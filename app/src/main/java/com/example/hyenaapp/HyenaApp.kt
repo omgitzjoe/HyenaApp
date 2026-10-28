@@ -7,6 +7,20 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import java.time.ZoneId
+import com.example.hyenaapp.data.repository.NearbyLocation
+import com.example.hyenaapp.ui.components.NearbyControls
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -21,10 +35,42 @@ import com.example.hyenaapp.ui.saved.SavedScreen
 fun HyenaApp() {
     val tabs = listOf("Home", "Explore", "Saved")
 
+    var nearby by remember { mutableStateOf<NearbyLocation?>(null) }
+    var radiusMiles by rememberSaveable { mutableStateOf(10) }
+    var timeZone by remember { mutableStateOf(ZoneId.systemDefault().id) }
+    val locationControls: @Composable () -> Unit = {
+        NearbyControls(nearby, radiusMiles, { nearby = it }, { radiusMiles = it })
+        Text("Times shown in $timeZone")
+    }
+
     var selectedAreaId by rememberSaveable { mutableStateOf<String?>(null) }
 
     var selectedTab by rememberSaveable { mutableStateOf("Home") }
     var showingDetails by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(context, lifecycleOwner) {
+        val updateZone = {
+            val current = ZoneId.systemDefault().id
+            if (current != timeZone) {
+                timeZone = current
+                showingDetails = false
+            }
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) updateZone()
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) { updateZone() }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(Intent.ACTION_TIMEZONE_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            context.unregisterReceiver(receiver)
+        }
+    }
+
 
     var detailTitle by rememberSaveable { mutableStateOf("") }
     var detailBusiness by rememberSaveable { mutableStateOf("") }
@@ -67,6 +113,10 @@ fun HyenaApp() {
                 "Home" -> HomeScreen(
                     modifier = screenModifier,
                     selectedAreaId = selectedAreaId,
+                    nearby = nearby,
+                    radiusMiles = radiusMiles,
+                    timeZone = timeZone,
+                    locationControls = locationControls,
                     onAreaChange = { selectedAreaId = it },
                     onExperienceClick = { title, business, schedule, offer ->
                         detailTitle = title
@@ -80,6 +130,10 @@ fun HyenaApp() {
                 "Explore" -> ExploreScreen(
                     modifier = screenModifier,
                     selectedAreaId = selectedAreaId,
+                    nearby = nearby,
+                    radiusMiles = radiusMiles,
+                    timeZone = timeZone,
+                    locationControls = locationControls,
                     onAreaChange = { selectedAreaId = it },
                     onExperienceClick = { title, business, schedule, offer ->
                         detailTitle = title

@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.repository.ExperienceRepository
+import com.example.hyenaapp.data.repository.NearbyLocation
 import com.example.hyenaapp.domain.model.Experience
 import com.example.hyenaapp.ui.components.ExperienceCard
 import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
@@ -32,6 +33,10 @@ import kotlinx.coroutines.delay
 fun ExploreScreen(
     modifier: Modifier = Modifier,
     selectedAreaId: String? = null,
+    nearby: NearbyLocation? = null,
+    radiusMiles: Int = 10,
+    timeZone: String = java.time.ZoneId.systemDefault().id,
+    locationControls: @Composable () -> Unit = {},
     onAreaChange: (String?) -> Unit = {},
     onExperienceClick: (String, String, String, String) -> Unit = { _, _, _, _ -> }
 ) {
@@ -46,7 +51,7 @@ fun ExploreScreen(
 
     val query = searchQuery.trim()
 
-    LaunchedEffect(query, selectedWindow, selectedAreaId, reloadKey) {
+    LaunchedEffect(query, selectedWindow, selectedAreaId, nearby, radiusMiles, timeZone, reloadKey) {
         isLoading = true
         errorMessage = null
 
@@ -55,7 +60,7 @@ fun ExploreScreen(
                 delay(300)
             }
 
-            experiences = ExperienceRepository.getExperiences(query, selectedWindow, selectedAreaId)
+            experiences = ExperienceRepository.getExperiences(query, selectedWindow, selectedAreaId, timeZone, nearby, radiusMiles)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -88,8 +93,10 @@ fun ExploreScreen(
             )
         }
 
-        item {
-            DiscoveryAreaPicker(selectedAreaId = selectedAreaId, onAreaChange = onAreaChange)
+        item { locationControls() }
+
+        if (nearby == null) {
+            item { DiscoveryAreaPicker(selectedAreaId = selectedAreaId, onAreaChange = onAreaChange) }
         }
 
         item {
@@ -122,9 +129,9 @@ fun ExploreScreen(
                 item {
                     Text(
                         text = if (query.isEmpty()) {
-                            "No experiences match this area and time window. Try All dates."
+                            "No experiences match this location and time window. Try All dates."
                         } else {
-                            "No experiences match your search, area, and time window."
+                            "No experiences match your search, location, and time window."
                         }
                     )
                 }

@@ -17,7 +17,7 @@ async function discoverExperiences(pool, query, now = new Date(), logger = conso
     // Deliberately no SQL LIMIT: recurrence must be evaluated before limiting.
     // This in-memory stage is intended for the curated prototype dataset.
     const result = await pool.query(`
-        SELECT e.id, e.title, e.description, b.name AS "businessName", b.city,
+        SELECT e.id, e.title, e.description, b.latitude, b.longitude, b.name AS "businessName", b.city,
             e.price_amount AS "priceAmount", e.currency, e.price_label AS "offer",
             s.kind AS "scheduleKind", s.start_date::text AS "startDate",
             s.end_date::text AS "endDate", s.start_time AS "startTime",
@@ -38,7 +38,18 @@ async function discoverExperiences(pool, query, now = new Date(), logger = conso
                 OR EXISTS (SELECT 1 FROM experience_categories ec JOIN categories c ON c.id = ec.category_id
                     WHERE ec.experience_id = e.id AND c.name ILIKE $1))
     `, [pattern, filters.areaId, filters.categoryId]);
-    return evaluateCandidates(result.rows, filters, evaluatedAt, id => logger.warn("Invalid discovery schedule:", id));
+    const rows = filters.proximity ? result.rows.filter(row => {
+        if (row.latitude == null || row.longitude == null) return false;
+        const radians = degrees => degrees * Math.PI / 180;
+        const { latitude, longitude, radiusMiles } = filters.proximity;
+        const dLat = radians(Number(row.latitude) - latitude);
+        const dLon = radians(Number(row.longitude) - longitude);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(latitude)) * Math.cos(radians(Number(row.latitude))) * Math.sin(dLon / 2) ** 2;
+        row.distanceMiles = 3958.7613 * 2 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, a))));
+        return row.distanceMiles <= radiusMiles;
+    }) : result.rows;
+    for (const row of rows) { delete row.latitude; delete row.longitude; }
+    return evaluateCandidates(rows, filters, evaluatedAt, id => logger.warn("Invalid discovery schedule:", id));
 }
 
 module.exports = { discoverExperiences };

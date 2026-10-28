@@ -1,5 +1,5 @@
 # Hyena App Software Design Description
-**Version:** 0.3 — Working design
+**Version:** 0.4 — Working design
 
 **Date:** October 28, 2026
 
@@ -32,7 +32,7 @@ The repository contains a Kotlin Android application using Jetpack Compose and M
 
 The namespace and application ID are `com.example.hyenaapp`; the minimum SDK is 28, target SDK is 37, and compile SDK is release 37 with minor API level 1. Java source and target compatibility are set to 11; these settings do not establish the Gradle runtime JDK requirement. The main manifest declares Internet permission, and the debug manifest permits local HTTP connections.
 
-The local Node.js/Express API connects to PostgreSQL hosted on Aiven through the `pg` connection pool with CA certificate verification. Implemented endpoints cover process/database health, listing retrieval and keyword search, individual experience details, categories, active discovery areas, and protected curator creation, text updates, and deactivation. The database schema, fictional seed data, and rollback-only constraint tests are stored in the repository. Date-window filtering, weekly recurrence, overnight overlap, and daylight-saving resolution are implemented. Home and Explore provide Today, Tonight, Now, and All dates controls and display computed occurrence times in the venue zone.
+The local Node.js/Express API connects to PostgreSQL hosted on Aiven through the `pg` connection pool with CA certificate verification. Implemented endpoints cover process/database health, listing retrieval and keyword search, individual experience details, categories, active discovery areas, and protected curator creation, text updates, and deactivation. The database schema, fictional seed data, and rollback-only constraint tests are stored in the repository. Date-window filtering, weekly recurrence, overnight overlap, and daylight-saving resolution are implemented. Home and Explore provide Today, Tonight, Now, and All dates controls and display computed occurrence times in the phone’s zone.
 
 ### 1.4 Design status
 
@@ -77,7 +77,7 @@ Library versions must be chosen against the existing Gradle configuration and lo
 
 ### 2.3 Release boundary
 
-Home, Explore, Details, area selection, optional account access, and Saved are the core screens. Accounts are optional to the visitor but required by the SRS for account-owned saves. Map, Surprise Me, preferences-based recommendations, and Build My Night are optional extensions. No GPS permission or public listing submission UI is required for the first release.
+Home, Explore, Details, area selection, optional account access, and Saved are the core screens. Accounts are optional to the visitor but required by the SRS for account-owned saves. Map, Surprise Me, preferences-based recommendations, and Build My Night are optional extensions. Foreground location permission is optional for Near me; manual area discovery remains available. Public listing submission UI is not implemented.
 
 ## 3 Android client design
 
@@ -204,13 +204,13 @@ The following sections describe the target API design. The currently implemented
 
 Public listing retrieval, keyword search, single-experience details, category lookup, active-area lookup, and protected curator management are implemented.
 
-Discovery defaults to Today and evaluates one-time/weekly schedules in each venue zone, including overnight and DST boundaries. Supported windows are today, tonight, now, date, and all. Search, optional area/category filters, and recurrence are applied before the result limit (20 by default, maximum 100). Time-filtered results sort by occurrence start and ID; all dates sorts by title and ID. Cursor pagination remains planned. Current responses retain flat listing fields and add nextOccurrence, hasMore, window, and evaluatedAt; Section 5.4 illustrates a future nested DTO shape, not the exact current response.
+Discovery defaults to Today. Schedule rules resolve in the venue zone; window boundaries use the supplied viewer timeZone, falling back to the venue zone for older clients. Overnight and DST boundaries are supported. Supported windows are today, tonight, now, date, and all. Search, optional area/category filters, and recurrence are applied before the result limit (20 by default, maximum 100). Time-filtered results sort by occurrence start and ID; all dates sorts by title and ID. Cursor pagination remains planned. Current responses retain flat listing fields and add nextOccurrence, hasMore, window, and evaluatedAt; Section 5.4 illustrates a future nested DTO shape, not the exact current response.
 
 User registration, login, account sessions, and saved-experience endpoints remain planned. Their database tables exist, but the curator key does not implement those account features.
 
 ### 5.1 Conventions
 
-Base path: `/api/v1`. JSON field names use camelCase. IDs are UUID strings. Dates are `YYYY-MM-DD`; local times are `HH:mm:ss`; occurrence timestamps are ISO 8601 instants with `Z` or an explicit offset. Return the IANA `timeZone` alongside occurrence instants so the app can display venue-local time.
+Base path: `/api/v1`. JSON field names use camelCase. IDs are UUID strings. Dates are `YYYY-MM-DD`; local times are `HH:mm:ss`; occurrence timestamps are ISO 8601 instants with `Z` or an explicit offset. Return the IANA `timeZone` alongside occurrence instants to identify schedule provenance; Android converts instants to the phone’s zone.
 
 Use `Authorization: Bearer <session-token>` for private operations. Public discovery does not require a token. Never accept a client-supplied user ID as the owner of a saved list; derive ownership from the authenticated session.
 
@@ -242,7 +242,7 @@ The account-deletion endpoint is a proposed addition to support the SRS privacy 
 | `q`          | Optional trimmed keyword string; proposed maximum 100 characters               |
 | `categoryId` | Optional valid category UUID                                                   |
 | `window`     | `today`, `tonight`, `now`, `date`, or `all`; Today is the default              |
-| `date`       | Required only for `window=date`; interpreted in each listing’s venue time zone |
+| `date`       | Required only for `window=date`; interpreted in the supplied viewer timeZone, otherwise the venue zone |
 | `limit`      | Default 20, maximum 100                                                        |
 | `cursor`     | Planned opaque page cursor; currently rejected with HTTP 400                   |
 
@@ -471,11 +471,11 @@ All windows use half-open intervals `[start, end)`. This means an event ending e
 | Now           | Evaluation instant                     | Start is at or before now, and end is after now                                          |
 | Selected date | Midnight to next midnight on that date | Any occurrence overlapping that date; label past occurrences if a past date is requested |
 
-The SRS proposed “through 11:59 p.m.”; midnight as an exclusive upper bound includes that complete final minute. The current 17:00 cutoff is an implemented default. Selected dates include past occurrences with EXPIRED status. The explicit all-dates view bypasses occurrence filtering while still excluding inactive listings, businesses, and areas. Derive Today/Tonight dates separately in each schedule’s IANA zone. Never derive the venue’s date from the phone’s current time zone.
+The SRS proposed “through 11:59 p.m.”; midnight as an exclusive upper bound includes that complete final minute. The current 17:00 cutoff is an implemented default. Selected dates include past occurrences with EXPIRED status. The explicit all-dates view bypasses occurrence filtering while still excluding inactive listings, businesses, and areas. Derive Today/Tonight boundaries in the viewer’s IANA zone when supplied, then translate the resulting instants to venue dates for recurrence evaluation.
 
 ### 7.2 Occurrence generation
 
-Capture one evaluation instant per request. Query active experiences/businesses for the selected area and keyword/category filters, then evaluate schedules before pagination. The recurrence service accepts an injected clock in tests; public requests cannot override the server clock arbitrarily. Current requests cover one venue-local calendar day or evening, so generation checks that date and the previous date for overnight overlap. SQL candidates are evaluated in memory before limiting; larger datasets require a more scalable occurrence/query strategy.
+Capture one evaluation instant per request. Query active experiences/businesses for the selected area and keyword/category filters, then evaluate schedules before pagination. The recurrence service accepts an injected clock in tests; public requests cannot override the server clock arbitrarily. Requests cover one viewer-local calendar day or evening; generation checks every venue date intersecting that window and the previous date for overnight overlap. SQL candidates are evaluated in memory before limiting; larger datasets require a more scalable occurrence/query strategy.
 
 ```text
 for each candidate schedule:
@@ -507,7 +507,7 @@ The implemented policy is explicit and covered by controlled-clock tests:
 - Calculate end independently using its local date/time and the same zone; do not assume duration is constant across offset changes.
 - If resolution produces a nonpositive interval, omit it and record a curator-facing validation issue.
 
-The backend uses @js-temporal/polyfill to resolve local dates/times and IANA zones with these policies. Android formats the returned occurrence instants in the supplied venue zone, including an end-date change for overnight events. Tests inject a clock internally; the public API does not accept arbitrary clock overrides.
+The backend uses @js-temporal/polyfill to resolve local dates/times and IANA zones with these policies. Android formats the returned occurrence instants in the phone’s zone, including an end-date change for overnight events. Tests inject a clock internally; the public API does not accept arbitrary clock overrides.
 
 Example: Taco Tuesday at 17:00–21:00 in `America/Denver` should remain at those local times when the seasonal offset changes. Its UTC timestamps change. A 23:00–01:00 overnight listing must be discoverable during both local dates where its interval overlaps the selected window.
 
@@ -651,3 +651,11 @@ This SDD is a working design for the current requirements. Update it alongside i
 ### Implemented area selector
 
 Home and Explore share a manually selected discovery area, saved across activity recreation. Both use active areas from `/api/v1/areas` and combine `areaId` with search and time-window parameters. All areas removes this constraint. Area loading has error and retry states; a removed or inactive selection resets when the area list reloads. Device location permission is not required.
+
+### Implemented proximity discovery and viewer time
+
+Near me requests a one-time foreground location fix with approximate or precise permission. Home and Explore share the in-memory position and 5/10/25-mile radius (default 10); manual area selection is available when proximity is off or unavailable. Location acquisition is cancellable, rejects fixes older than two minutes, and times out per provider. Users refresh after moving. Coordinates are not persisted or written to PostgreSQL; no background tracking is enabled.
+
+The discovery API validates optional latitude/longitude/radiusMiles and viewer timeZone. Business coordinates determine great-circle proximity; missing business coordinates are excluded without substituting area centers. Proximity cannot be combined with areaId. Distance and recurrence are applied before limiting, with existing chronological ordering. Candidate evaluation remains in memory for the prototype.
+
+Schedule wall times resolve in the venue zone, but Today/Tonight/date boundaries follow the supplied viewer zone. Android sends the phone zone and converts all displayed dated occurrence timestamps into that zone, showing date changes. All dates supplies a representative dated occurrence rather than attempting to convert undated recurring wall times. Now uses the same instant regardless of viewer zone. Manual device validation covers permissions, disabled location, timeout, fallback, and phone-zone changes; local Android builds remain blocked by Gradle download access.

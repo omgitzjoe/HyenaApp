@@ -109,3 +109,30 @@ test('database outage becomes a safe 500 response',async()=>{
     try{const r=await fetch(`http://127.0.0.1:${s.address().port}/api/v1/experiences`);assert.equal(r.status,500);assert.ok(!(await r.text()).includes('private connection'));}
     finally{await new Promise(r=>s.close(r));}
 });
+
+test('proximity excludes missing coordinates and filters before limit', async () => {
+    assert.equal((await get('?window=all&latitude=39.7392&longitude=-104.9903')).body.count, 0);
+    try {
+        await db.query('UPDATE businesses SET latitude=39.7392, longitude=-104.9903 WHERE id=$1', [ids.business]);
+        const near = await get('?latitude=39.7392&longitude=-104.9903&radiusMiles=5&limit=1&timeZone=America%2FDenver');
+        assert.equal(near.status, 200); assert.equal(near.body.count, 1); assert.equal(near.body.hasMore, true);
+        assert.equal(near.body.items[0].distanceMiles, 0);
+        assert.equal('latitude' in near.body.items[0], false);
+        assert.equal((await get('?latitude=40.7128&longitude=-74.0060&radiusMiles=25')).body.count, 0);
+        assert.equal((await get('?latitude=39.7392&longitude=-104.9903&q=family')).body.count, 1);
+    } finally { await db.query('UPDATE businesses SET latitude=NULL, longitude=NULL WHERE id=$1', [ids.business]); }
+});
+test('distance handles antimeridian', async () => {
+    try {
+        await db.query('UPDATE businesses SET latitude=0, longitude=-179.99 WHERE id=$1', [ids.business]);
+        const r = await get('?latitude=0&longitude=179.99&radiusMiles=5');
+        assert.equal(r.body.count, 3); assert.ok(r.body.items.every(x => x.distanceMiles < 2));
+    } finally { await db.query('UPDATE businesses SET latitude=NULL, longitude=NULL WHERE id=$1', [ids.business]); }
+});
+test('HTTP rejects malformed proximity and time zone', async () => {
+    for (const query of ['?latitude=91&longitude=0', '?timeZone=Mars%2FUnknown', '?latitude=0', '?radiusMiles=5']) assert.equal((await get(query)).status, 400);
+});
+test('HTTP viewer tonight differs from venue tonight', async () => {
+    assert.equal((await get('?window=tonight&timeZone=UTC')).body.count, 3);
+    assert.equal((await get('?window=tonight&timeZone=Asia%2FTokyo')).body.count, 0);
+});
