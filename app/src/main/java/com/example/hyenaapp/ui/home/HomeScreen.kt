@@ -14,12 +14,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.domain.model.Experience
 import com.example.hyenaapp.ui.components.ExperienceCard
+import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
 import kotlin.coroutines.cancellation.CancellationException
 
 @Composable
@@ -33,13 +35,14 @@ fun HomeScreen(
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
+    var selectedWindow by rememberSaveable { mutableStateOf("today") }
 
-    LaunchedEffect(reloadKey) {
+    LaunchedEffect(selectedWindow, reloadKey) {
         isLoading = true
         errorMessage = null
 
         try {
-            experiences = ExperienceRepository.getExperiences()
+            experiences = ExperienceRepository.getExperiences(window = selectedWindow)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -69,6 +72,13 @@ fun HomeScreen(
             )
         }
 
+        item {
+            DiscoveryWindowPicker(
+                selectedWindow = selectedWindow,
+                onWindowChange = { selectedWindow = it }
+            )
+        }
+
         when {
             isLoading -> {
                 item {
@@ -90,7 +100,7 @@ fun HomeScreen(
 
             experiences.isEmpty() -> {
                 item {
-                    Text(text = "No experiences found.")
+                    Text(text = "No experiences match this time window. Try another window or All dates.")
                 }
             }
 

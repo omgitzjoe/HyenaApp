@@ -1,6 +1,8 @@
 # Hyena App Software Design Description
-**Version:** 0.2 — Working design  
-**Date:** October 28, 2026  
+**Version:** 0.3 — Working design
+
+**Date:** October 28, 2026
+
 **Project owner:** Joseph Tolley  
 **Intended repository path:** `doc/Hyena_App_SDD.md`
 
@@ -30,13 +32,13 @@ The repository contains a Kotlin Android application using Jetpack Compose and M
 
 The namespace and application ID are `com.example.hyenaapp`; the minimum SDK is 28, target SDK is 37, and compile SDK is release 37 with minor API level 1. Java source and target compatibility are set to 11; these settings do not establish the Gradle runtime JDK requirement. The main manifest declares Internet permission, and the debug manifest permits local HTTP connections.
 
-The local Node.js/Express API connects to PostgreSQL hosted on Aiven through the `pg` connection pool with CA certificate verification. Implemented endpoints cover process/database health, listing retrieval and keyword search, individual experience details, categories, active discovery areas, and protected curator creation, text updates, and deactivation. The database schema, fictional seed data, and rollback-only constraint tests are stored in the repository. Date-window filtering and recurrence evaluation remain planned.
+The local Node.js/Express API connects to PostgreSQL hosted on Aiven through the `pg` connection pool with CA certificate verification. Implemented endpoints cover process/database health, listing retrieval and keyword search, individual experience details, categories, active discovery areas, and protected curator creation, text updates, and deactivation. The database schema, fictional seed data, and rollback-only constraint tests are stored in the repository. Date-window filtering, weekly recurrence, overnight overlap, and daylight-saving resolution are implemented. Home and Explore provide Today, Tonight, Now, and All dates controls and display computed occurrence times in the venue zone.
 
 ### 1.4 Design status
 
 Kotlin, Compose, Material 3, Retrofit with Gson, Node.js/Express, the `pg` driver, Zod request validation, and Aiven PostgreSQL are implemented choices. Curator management currently uses a server-side development API key; this is separate from the planned user-account session system.
 
-This document also retains target architecture and feature designs that are not implemented yet, including ViewModels/StateFlow, DataStore preferences, user authentication and saved experiences, occurrence-based filtering and ordering, and pagination. Backend API hosting, the mapping provider, final discovery coverage, the Tonight cutoff, and the recurrence/DST implementation remain open or proposed.
+This document also retains target architecture and feature designs that are not implemented yet, including ViewModels/StateFlow, DataStore preferences, user authentication and saved experiences, cursor pagination, and saved-list availability. Backend API hosting, the mapping provider, and final discovery coverage remain open. The implemented Tonight boundary is 17:00 to the next midnight; the documented gap/overlap policies are implemented defaults that can be revised with tests.
 
 ## 2 Architecture and design decisions
 
@@ -153,7 +155,7 @@ Use semantic labels, readable contrast, font scaling, and accessible touch targe
 
 ### 4.1 Modules
 
-The existing `backend/` directory is separate from the Android `app/` module. The table below describes a target module layout. The current implementation uses `server.js`, `db.js`, `routes/`, `middleware/`, and `validation/` directly beneath `backend/`; separate service and repository layers remain planned.
+The existing `backend/` directory is separate from the Android `app/` module. The table below describes a target module layout. The current implementation uses `server.js`, `db.js`, `routes/`, `middleware/`, `validation/`, and discovery/recurrence modules in `services/` directly beneath `backend/`. A separate SQL repository layer remains planned.
 
 | Module                    | Responsibility                                                                  |
 |---------------------------|---------------------------------------------------------------------------------|
@@ -202,7 +204,7 @@ The following sections describe the target API design. The currently implemented
 
 Public listing retrieval, keyword search, single-experience details, category lookup, active-area lookup, and protected curator management are implemented.
 
-Discovery currently returns at most 20 listings ordered by title and ID. Search is applied before that limit. Date-window filtering, occurrence calculation, upcoming-occurrence ordering, and cursor pagination remain planned. The response example in Section 5.4 represents the target occurrence-based response rather than the current flat listing response.
+Discovery defaults to Today and evaluates one-time/weekly schedules in each venue zone, including overnight and DST boundaries. Supported windows are today, tonight, now, date, and all. Search, optional area/category filters, and recurrence are applied before the result limit (20 by default, maximum 100). Time-filtered results sort by occurrence start and ID; all dates sorts by title and ID. Cursor pagination remains planned. Current responses retain flat listing fields and add nextOccurrence, hasMore, window, and evaluatedAt; Section 5.4 illustrates a future nested DTO shape, not the exact current response.
 
 User registration, login, account sessions, and saved-experience endpoints remain planned. Their database tables exist, but the curator key does not implement those account features.
 
@@ -236,23 +238,23 @@ The account-deletion endpoint is a proposed addition to support the SRS privacy 
 
 | Parameter    | Rule                                                                           |
 |--------------|--------------------------------------------------------------------------------|
-| `areaId`     | Required supported area UUID; restrict results to its business membership      |
+| `areaId`     | Optional active supported area UUID; omitted means all supported active areas  |
 | `q`          | Optional trimmed keyword string; proposed maximum 100 characters               |
 | `categoryId` | Optional valid category UUID                                                   |
-| `window`     | `today`, `tonight`, `now`, or `date`; Today is the default                     |
+| `window`     | `today`, `tonight`, `now`, `date`, or `all`; Today is the default              |
 | `date`       | Required only for `window=date`; interpreted in each listing’s venue time zone |
 | `limit`      | Default 20, maximum 100                                                        |
-| `cursor`     | Optional opaque page cursor bound to filters and evaluation time               |
+| `cursor`     | Planned opaque page cursor; currently rejected with HTTP 400                   |
 
-Unknown filter values return 400. An unknown area returns 400 with `INVALID_AREA`; an empty supported area returns 200 with an empty list. A date query returns a single local calendar-day window. Larger date ranges may be added later but must remain bounded; the internal recurrence service accepts at most 31 days per evaluation.
+Unknown filter values return 400. An unknown area returns 400 with `INVALID_AREA`; an empty supported area returns 200 with an empty list. A date query returns a single local calendar-day window. Larger date ranges may be added later but must remain bounded; the current implementation evaluates one selected day at a time. A future range endpoint must define its maximum span before implementation.
 
-Search matches title, description, business name, and category names case-insensitively. Category and time filters combine with AND. Escape literal wildcard characters if using SQL `ILIKE`, and parameterize all input. Search ranking is not part of the core ordering; results sort by next matching occurrence start, then experience ID.
+Search matches title, description, business name, offer text, and category names case-insensitively. Category and time filters combine with AND. Escape literal wildcard characters if using SQL `ILIKE`, and parameterize all input. Search ranking is not part of the core ordering; time-filtered results sort by matching occurrence start, then experience ID. The explicit all-dates view retains title/ID ordering and does not calculate an occurrence.
 
-A cursor contains the last sort key, an evaluation timestamp, and a hash of the filters, protected by a server signature. Expire it after a proposed five minutes. Continuation requests keep the first page’s time-window evaluation; a fresh search uses the current clock. Listing edits between pages can still change membership, so this is not a database snapshot. Reject mismatched or expired cursors with 400 and let the client restart the query.
+The planned cursor design contains the last sort key, an evaluation timestamp, and a hash of the filters, protected by a server signature. Expire it after a proposed five minutes. Continuation requests keep the first page’s time-window evaluation; a fresh search uses the current clock. Listing edits between pages can still change membership, so this is not a database snapshot. Reject mismatched or expired cursors with 400 and let the client restart the query.
 
 ### 5.4 Discovery response example
 
-This is an illustrative response for a seeded Tuesday listing. The UUIDs are example values.
+This is a target nested response for a seeded Tuesday listing. The current API uses flat businessName/priceAmount/offer/schedule fields plus nextOccurrence; it does not yet return nested business/price objects or nextCursor. The UUIDs below are example values.
 
 ```json
 {
@@ -465,15 +467,15 @@ All windows use half-open intervals `[start, end)`. This means an event ending e
 | View          | Local window                           | Inclusion                                                                                |
 |---------------|----------------------------------------|------------------------------------------------------------------------------------------|
 | Today         | Local midnight to the next midnight    | Occurrence overlaps the day and has not ended at evaluation time                         |
-| Tonight       | Proposed 17:00 to the next midnight    | Occurrence overlaps the evening and has not ended at evaluation time                     |
+| Tonight       | 17:00 to the next midnight             | Occurrence overlaps the evening and has not ended at evaluation time                     |
 | Now           | Evaluation instant                     | Start is at or before now, and end is after now                                          |
 | Selected date | Midnight to next midnight on that date | Any occurrence overlapping that date; label past occurrences if a past date is requested |
 
-The SRS proposed “through 11:59 p.m.”; midnight as an exclusive upper bound includes that complete final minute. The 17:00 cutoff is still a proposal. Derive Today/Tonight dates separately in each schedule’s IANA zone. Never derive the venue’s date from the phone’s current time zone.
+The SRS proposed “through 11:59 p.m.”; midnight as an exclusive upper bound includes that complete final minute. The current 17:00 cutoff is an implemented default. Selected dates include past occurrences with EXPIRED status. The explicit all-dates view bypasses occurrence filtering while still excluding inactive listings, businesses, and areas. Derive Today/Tonight dates separately in each schedule’s IANA zone. Never derive the venue’s date from the phone’s current time zone.
 
 ### 7.2 Occurrence generation
 
-Capture one evaluation instant per request. Query active experiences/businesses for the selected area and keyword/category filters, then evaluate schedules before pagination. The recurrence service accepts an injected clock in tests; public requests cannot override the server clock arbitrarily.
+Capture one evaluation instant per request. Query active experiences/businesses for the selected area and keyword/category filters, then evaluate schedules before pagination. The recurrence service accepts an injected clock in tests; public requests cannot override the server clock arbitrarily. Current requests cover one venue-local calendar day or evening, so generation checks that date and the previous date for overnight overlap. SQL candidates are evaluated in memory before limiting; larger datasets require a more scalable occurrence/query strategy.
 
 ```text
 for each candidate schedule:
@@ -497,7 +499,7 @@ Starting enumeration one day earlier includes a Monday-night occurrence that con
 
 ### 7.3 Daylight-saving policy
 
-The working policy is explicit so it can be tested and revised:
+The implemented policy is explicit and covered by controlled-clock tests:
 
 - Keep the scheduled local wall-clock time each week; do not repeat by adding a fixed number of UTC hours.
 - For a nonexistent local time during a spring-forward gap, move it forward by the gap duration.
@@ -505,7 +507,7 @@ The working policy is explicit so it can be tested and revised:
 - Calculate end independently using its local date/time and the same zone; do not assume duration is constant across offset changes.
 - If resolution produces a nonpositive interval, omit it and record a curator-facing validation issue.
 
-A timezone-capable backend library must expose these policies and pass fixture tests before selection. The exact library is open; native JavaScript Date arithmetic alone is not the design contract. Display the actual resolved venue-local timestamp, including a date change for overnight events.
+The backend uses @js-temporal/polyfill to resolve local dates/times and IANA zones with these policies. Android formats the returned occurrence instants in the supplied venue zone, including an end-date change for overnight events. Tests inject a clock internally; the public API does not accept arbitrary clock overrides.
 
 Example: Taco Tuesday at 17:00–21:00 in `America/Denver` should remain at those local times when the seasonal offset changes. Its UTC timestamps change. A 23:00–01:00 overnight listing must be discoverable during both local dates where its interval overlaps the selected window.
 
@@ -584,7 +586,7 @@ Public GET requests may be retried with a small bounded delay. Avoid automatic r
 | End-to-end checks          | Seed → API → Android discovery; service outage; session expiry during saving; unavailable saved listing                                        |
 | Performance checks         | Record connection conditions, dataset size, API p95 target under 2 seconds, and discovery display target under 3 seconds from NFR-01           |
 
-These are planned tests. Creating this document does not mean they have passed. The performance targets require measurement against the implemented service and device conditions.
+The table includes both current and future verification. The implemented backend has automated recurrence, validation, and Express/PostgreSQL integration tests using Node's test runner and an isolated PGlite engine. Run npm test from backend; no Aiven credentials are required. These tests cover the checked-in schema and controlled fixtures, not live Aiven connectivity or unimplemented account features. Android occurrence-formatting tests are included; they require local Gradle/SDK verification. Performance targets still require deployment/device measurement.
 
 ### 11.2 Traceability
 
@@ -627,10 +629,10 @@ These are planned tests. Creating this document does not mean they have passed. 
 | Backend framework           | Node.js/Express and the pg driver are implemented                                                                 |
 | Network/client dependencies | Retrofit/Gson and coroutines are implemented; DataStore and protected session storage remain planned              |
 | Initial area                | Supported-area table and curated membership; city/postal coverage not chosen                                      |
-| Tonight boundary            | 17:00 to next midnight, exclusive; proposed                                                                       |
-| DST gaps/overlaps           | Shift gap times forward; earlier start/later end for overlaps; proposed                                           |
+| Tonight boundary            | 17:00 to next midnight, exclusive; implemented default                                                            |
+| DST gaps/overlaps           | Shift gaps forward; earlier start/later end for overlaps; implemented and tested                                  |
 | Session and password method | Revocable opaque sessions and Argon2id; proposed                                                                  |
-| Timezone library            | Select one that supports the specified resolution rules                                                           |
+| Timezone library            | @js-temporal/polyfill; implemented with explicit resolution policies                                              |
 | Hosting and map provider    | Aiven hosts PostgreSQL; backend API hosting and map provider remain undecided                                     |
 | Public account readiness    | Email verification, account recovery, backup retention, and public deployment policy require scope review         |
 | Source-document consistency | Update blueprint account/map MVP wording to match the current SRS when reviewing scope                            |

@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.domain.model.Experience
 import com.example.hyenaapp.ui.components.ExperienceCard
+import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
 
@@ -38,10 +39,11 @@ fun ExploreScreen(
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
+    var selectedWindow by rememberSaveable { mutableStateOf("today") }
 
     val query = searchQuery.trim()
 
-    LaunchedEffect(query, reloadKey) {
+    LaunchedEffect(query, selectedWindow, reloadKey) {
         isLoading = true
         errorMessage = null
 
@@ -50,7 +52,7 @@ fun ExploreScreen(
                 delay(300)
             }
 
-            experiences = ExperienceRepository.getExperiences(query)
+            experiences = ExperienceRepository.getExperiences(query, selectedWindow)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -83,6 +85,13 @@ fun ExploreScreen(
             )
         }
 
+        item {
+            DiscoveryWindowPicker(
+                selectedWindow = selectedWindow,
+                onWindowChange = { selectedWindow = it }
+            )
+        }
+
         when {
             isLoading -> {
                 item {
@@ -106,9 +115,9 @@ fun ExploreScreen(
                 item {
                     Text(
                         text = if (query.isEmpty()) {
-                            "No experiences available."
+                            "No experiences match this time window. Try All dates."
                         } else {
-                            "No experiences match your search."
+                            "No experiences match your search and time window."
                         }
                     )
                 }

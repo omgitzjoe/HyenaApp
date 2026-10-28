@@ -6,6 +6,7 @@ import retrofit2.http.Query
 interface HyenaApi {
     @GET("api/v1/experiences")
     suspend fun getExperiences(
-        @Query("q") query: String = ""
+        @Query("q") query: String = "",
+        @Query("window") window: String = "today"
     ): ExperienceResponse
 }
