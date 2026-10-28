@@ -1,6 +1,6 @@
 # Hyena App Software Design Description
-**Version:** 0.2 — Working design
-**Date:** October-28-2026
+**Version:** 0.2 — Working design  
+**Date:** October 28, 2026  
 **Project owner:** Joseph Tolley  
 **Intended repository path:** `doc/Hyena_App_SDD.md`
 
@@ -26,13 +26,17 @@ The SRS governs release scope where the documents differ. The blueprint places a
 
 ### 1.3 Existing implementation
 
-The repository contains a Kotlin Android application with Jetpack Compose and Material 3. `MainActivity` currently renders “Hello Android.” Its namespace and application ID are `com.example.hyenaapp`; its minimum SDK is 28, target SDK is 37, and compile SDK is release 37 with minor API level 1. The Java source and target compatibility settings are 11; those settings do not establish the Gradle runtime JDK requirement.
+The repository contains a Kotlin Android application using Jetpack Compose and Material 3. MainActivity launches HyenaApp with Home, Explore, and Saved tabs and an experience Details screen. Home and Explore retrieve listings through Retrofit with Gson and a shared repository. Explore sends keyword searches to the API with a 300 ms debounce. Details currently displays values passed from a selected card; the fuller backend detail endpoint is available but is not yet wired into that screen. Saved remains a placeholder, and account access and saved-item operations are not implemented.
 
-There is no implemented API, database, discovery screen, account flow, or navigation graph in the inspected tree. The manifest does not yet declare Internet permission. This design does not claim that those features are already built.
+The namespace and application ID are `com.example.hyenaapp`; the minimum SDK is 28, target SDK is 37, and compile SDK is release 37 with minor API level 1. Java source and target compatibility are set to 11; these settings do not establish the Gradle runtime JDK requirement. The main manifest declares Internet permission, and the debug manifest permits local HTTP connections.
+
+The local Node.js/Express API connects to PostgreSQL hosted on Aiven through the `pg` connection pool with CA certificate verification. Implemented endpoints cover process/database health, listing retrieval and keyword search, individual experience details, categories, active discovery areas, and protected curator creation, text updates, and deactivation. The database schema, fictional seed data, and rollback-only constraint tests are stored in the repository. Date-window filtering and recurrence evaluation remain planned.
 
 ### 1.4 Design status
 
-The design makes concrete working proposals so implementation can proceed. Node.js/Express, the client network libraries, account-session method, and recurrence policies below remain proposals rather than previously approved project decisions. Hosting, mapping provider, final discovery area, and the Tonight cutoff remain open.
+Kotlin, Compose, Material 3, Retrofit with Gson, Node.js/Express, the `pg` driver, Zod request validation, and Aiven PostgreSQL are implemented choices. Curator management currently uses a server-side development API key; this is separate from the planned user-account session system.
+
+This document also retains target architecture and feature designs that are not implemented yet, including ViewModels/StateFlow, DataStore preferences, user authentication and saved experiences, occurrence-based filtering and ordering, and pagination. Backend API hosting, the mapping provider, final discovery coverage, the Tonight cutoff, and the recurrence/DST implementation remain open or proposed.
 
 ## 2 Architecture and design decisions
 
@@ -149,7 +153,7 @@ Use semantic labels, readable contrast, font scaling, and accessible touch targe
 
 ### 4.1 Modules
 
-The proposed `backend/` directory is separate from the existing `app/` module.
+The existing `backend/` directory is separate from the Android `app/` module. The table below describes a target module layout. The current implementation uses `server.js`, `db.js`, `routes/`, `middleware/`, and `validation/` directly beneath `backend/`; separate service and repository layers remain planned.
 
 | Module                    | Responsibility                                                                  |
 |---------------------------|---------------------------------------------------------------------------------|
@@ -189,6 +193,7 @@ Partial updates modify only supplied fields and maintain updated_at. Explicit nu
 Deactivation preserves the experience and its saved references. Public retrieval excludes inactive experiences, businesses, and areas. Editing an inactive experience does not reactivate it.
 
 The development workflow uses localhost for key-bearing tests. Deployment requires HTTPS. Individual curator accounts, role-based access, and curator audit logging remain future work.
+
 ## 5 API contracts
 
 ### Current implementation status
@@ -200,6 +205,7 @@ Public listing retrieval, keyword search, single-experience details, category lo
 Discovery currently returns at most 20 listings ordered by title and ID. Search is applied before that limit. Date-window filtering, occurrence calculation, upcoming-occurrence ordering, and cursor pagination remain planned. The response example in Section 5.4 represents the target occurrence-based response rather than the current flat listing response.
 
 User registration, login, account sessions, and saved-experience endpoints remain planned. Their database tables exist, but the curator key does not implement those account features.
+
 ### 5.1 Conventions
 
 Base path: `/api/v1`. JSON field names use camelCase. IDs are UUID strings. Dates are `YYYY-MM-DD`; local times are `HH:mm:ss`; occurrence timestamps are ISO 8601 instants with `Z` or an explicit offset. Return the IANA `timeZone` alongside occurrence instants so the app can display venue-local time.
@@ -537,21 +543,25 @@ Follow the blueprint’s feature-branch workflow. Suggested initial branches are
 ### 9.2 Development setup
 
 1. Open the existing Android project and sync with its Gradle wrapper. Confirm the installed SDK and Gradle runtime JDK satisfy the checked-in configuration.
-2. Create a local PostgreSQL instance and separate development database/user.
-3. Add the backend dependency manifest, lockfile, migration runner, and example environment file as implementation work.
-4. Configure `DATABASE_URL`, `CURSOR_SIGNING_SECRET`, `PORT`, and the selected runtime settings. Keep actual secrets out of git.
-5. Run ordered migrations and a curated development seed.
-6. Start the API and verify service health and a discovery query.
-7. Configure the Android build’s API base URL; add Internet permission.
-8. Run the app on an emulator or device and verify area selection, discovery, and details.
+2. Obtain access to the Aiven PostgreSQL service. A separate local PostgreSQL instance is optional, not a requirement for the current setup.
+3. From `backend`, run `npm ci`. If a local `.env` does not exist, copy `.env.example` to `.env`; preserve any existing configured file.
+4. Configure `PORT`, `NODE_ENV`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSL_CA_PATH`, and `CURATOR_API_KEY`. Download the Aiven CA certificate to the configured local path, normally `backend/certs/ca.pem`. Generate the curator key using the command in `backend/readme.md`. Keep actual credentials and the key outside Git and the Android app.
+5. On a new database, manually execute `backend/db/migrations/initial_schema.sql`, then `backend/db/seeds/sample_data.sql`. Do not rerun CREATE TABLE statements against the existing schema. The optional `backend/db/tests/constraints_test.sql` verifies database rules and rolls back its mutations. There is no automated migration runner or schema-migrations tracking table yet.
+6. From `backend`, run `node server.js`. Verify `/health`, `/health/db`, and a listing/search request.
+7. Set the Android API base URL to the computer's reachable Wi-Fi address and API port when testing on a physical phone, retaining the trailing slash. Internet permission and debug-only HTTP access are already configured.
+8. Run the app and verify Home retrieval, Explore search, and card-to-Details navigation. Area selection, user authentication, and working saved lists are future features, not current setup checks.
 
-The Android emulator can use an appropriate host alias for a service running on the development computer; a physical phone needs a reachable network address. Do not configure a physical device to call its own localhost for the computer’s API. Document the actual address in the setup guide when the environment is chosen.
+An emulator requires an appropriate address for reaching the development computer. A physical phone must not use its own localhost address for the computer's API. Keep the backend running and update the configured address when the computer's Wi-Fi IP changes.
 
-If local HTTP is needed, permit it only in a debug-specific network configuration. Release builds use HTTPS and do not inherit a broad cleartext exception. Review backup rules before adding persistent sessions.
+Release deployment must use HTTPS. The local cleartext allowance is limited to the Android debug build. Review backup rules before implementing persistent account sessions. The current configuration uses separate `DB_*` settings rather than `DATABASE_URL`; `CURSOR_SIGNING_SECRET` is not used until cursor pagination is implemented.
 
 ### 9.3 Delivery and recovery
 
-Provide an Android APK for the project demonstration plus a reproducible backend/database setup guide. Hosting is not selected. Run migrations once through a controlled deployment step, then start the API. Health checks should distinguish basic process health from database readiness without leaking connection details. Back up the database before risky schema updates, record migration versions, and prefer reviewed forward fixes over destructive automated rollback.
+Provide an Android APK for the project demonstration plus the backend/database setup instructions in `backend/readme.md`. PostgreSQL is hosted on Aiven; backend API hosting and the mapping provider have not been selected. The API currently runs on the development computer.
+
+Schema changes are currently executed manually from version-controlled SQL files. Before future deployments, define a controlled migration process and execution tracking. Back up the database before risky schema updates and prefer reviewed forward fixes over destructive automated rollback.
+
+Process health is exposed through `/health`, and database readiness is checked through `/health/db`. Responses should not expose credentials or detailed connection information.
 
 ## 10 Logging and failure handling
 
@@ -614,14 +624,14 @@ These are planned tests. Creating this document does not mean they have passed. 
 
 | Decision                    | Working proposal or unresolved detail                                                                             |
 |-----------------------------|-------------------------------------------------------------------------------------------------------------------|
-| Backend framework           | Node.js/Express proposed by the SRS; confirm before adding the service                                            |
-| Network/client dependencies | Retrofit, coroutine state, DataStore, protected session storage; select compatible versions during implementation |
+| Backend framework           | Node.js/Express and the pg driver are implemented                                                                 |
+| Network/client dependencies | Retrofit/Gson and coroutines are implemented; DataStore and protected session storage remain planned              |
 | Initial area                | Supported-area table and curated membership; city/postal coverage not chosen                                      |
 | Tonight boundary            | 17:00 to next midnight, exclusive; proposed                                                                       |
 | DST gaps/overlaps           | Shift gap times forward; earlier start/later end for overlaps; proposed                                           |
 | Session and password method | Revocable opaque sessions and Argon2id; proposed                                                                  |
 | Timezone library            | Select one that supports the specified resolution rules                                                           |
-| Hosting and map provider    | Undecided; mapping remains optional                                                                               |
+| Hosting and map provider    | Aiven hosts PostgreSQL; backend API hosting and map provider remain undecided                                     |
 | Public account readiness    | Email verification, account recovery, backup retention, and public deployment policy require scope review         |
 | Source-document consistency | Update blueprint account/map MVP wording to match the current SRS when reviewing scope                            |
 
