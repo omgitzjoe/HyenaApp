@@ -1,5 +1,5 @@
 # Hyena App Software Design Description
-**Version:** 0.6 — Working design
+**Version:** 0.7 — Working design
 
 **Date:** October 28, 2026
 
@@ -679,3 +679,11 @@ SavedExperienceStore persists snapshots in private Android SharedPreferences on 
 Storage failures are visible and do not silently erase existing data. Unreadable storage disables mutation until it can be loaded successfully. This is implemented local functionality; the authenticated account-owned saved endpoints in the target design remain future work and are not implemented by this device store.
 
 Category choices are directly visible as scrollable chips. Loading, empty server data, and HTTP errors have distinct messages and retry actions. The category route is dependency-injected for integration testing and tolerates absent optional icon metadata. Tests use the checked-in schema and full seed; no running Aiven database is accessed during those tests. Device confirmation is still required for the Android build and persistence/lifecycle behavior.
+
+### Realistic demo catalog and deployable API
+
+The fictional catalog preserves its existing IDs: 225 experiences, 50 businesses, 16 populated categories, and 10 discovery areas. A catalog-only refresh updates known mock records and schedule/category links without modifying users or sessions. Fresh test databases use the full fixture script. A deterministic generator keeps both scripts consistent. Every category includes free all-day, ongoing, paid, unknown-price, upcoming, and overnight coverage; additional cases cover expired/future/bounded schedules, inactive parents, missing coordinates, duplicate titles, apostrophes/Unicode/literal wildcard search, DST, and leap day. Friendly-name collisions preserve unrelated categories and use a Demo suffix.
+
+Render deployment is prepared as a single Node web service connected to the existing Aiven PostgreSQL service. No Render service has been created by this code change. The Blueprint uses backend as root, npm ci --omit=dev, npm start, and /health/db readiness. Aiven CA contents can be supplied privately as DB_SSL_CA instead of a local file path; certificate verification remains enabled. The server binds to 0.0.0.0 using the assigned PORT and supports graceful SIGTERM shutdown.
+
+The Android base URL is supplied through the HYENA_API_BASE_URL Gradle property and generated BuildConfig; the existing LAN URL remains the development default. Deployment acceptance requires rebuilding with the actual HTTPS URL, stopping local Node, and verifying discovery from mobile data. Render Free has cold starts, so request timeouts accommodate a longer initial response. Account synchronization and paid always-on hosting remain separate future decisions.

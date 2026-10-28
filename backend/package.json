@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Hyena App REST API",
   "main": "server.js",
+  "engines": { "node": "24.x" },
   "scripts": {
     "test": "node --test tests/*.test.js",
     "start": "node server.js"
