@@ -3,7 +3,7 @@ services:
     name: hyena-api
     runtime: node
     plan: free
-    branch: feature/date-filtering
+    branch: master
     rootDir: backend
     buildCommand: npm ci --omit=dev
     startCommand: npm start

@@ -4,14 +4,14 @@ This repository is ready for deployment; no online service has been created by t
 
 ## 1. Refresh the mock catalog
 
-Pull `feature/date-filtering`, then run **backend/db/seeds/refresh_mock_catalog.sql** as an entire script in DBeaver against the existing Aiven database. Do not use sample_data.sql for this update: the full file also refreshes public demo accounts and sessions. The catalog-only script is transactional and updates only the known demo catalog IDs. It preserves IDs and does not delete users, sessions, or unrelated listings.
+Pull `master`, then run **backend/db/seeds/refresh_mock_catalog.sql** as an entire script in DBeaver against the existing Aiven database. Do not use sample_data.sql for this update: the full file also refreshes public demo accounts and sessions. The catalog-only script is transactional and updates only the known demo catalog IDs. It preserves IDs and does not delete users, sessions, or unrelated listings.
 
 All businesses and offers remain fictional. Re-running refresh_mock_catalog.sql refreshes relative dates; daily weekly listings keep working without daily reseeding, while the explicitly ongoing one-time examples are anchored to the refresh instant. Existing saved phone snapshots keep their old titles until removed and saved again.
 
 ## 2. Create the Render service
 
 1. Sign in to [Render](https://dashboard.render.com/).
-2. Choose **New → Blueprint**, connect `omgitzjoe/HyenaApp`, and select branch `feature/date-filtering`.
+2. Choose **New → Blueprint**, connect `omgitzjoe/HyenaApp`, and select branch `master`.
 3. Render should read the root `render.yaml`: one Node web service, root directory `backend`, build `npm ci --omit=dev`, start `npm start`, and health check `/health/db`.
 4. Enter the private environment variables requested by the Blueprint:
 
