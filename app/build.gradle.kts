@@ -6,7 +6,7 @@ plugins {
 }
 
 val apiBaseUrl = providers.gradleProperty("HYENA_API_BASE_URL")
-    .orElse("http://192.168.0.43:4010/").get()
+    .orElse("https://hyena-api-np3j.onrender.com/").get()
 val apiUri = URI(apiBaseUrl)
 require(apiUri.scheme in listOf("http", "https") && apiUri.host != null &&
     apiUri.userInfo == null && apiUri.query == null && apiUri.fragment == null && apiBaseUrl.endsWith("/")) {

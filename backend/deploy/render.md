@@ -1,6 +1,6 @@
 # Run Hyena API online with Render and Aiven
 
-This repository is ready for deployment; no online service has been created by these changes. PostgreSQL stays on Aiven. The Android app connects to Render over HTTPS. Your computer is needed for development, not for serving requests once deployment is verified.
+The service is deployed at https://hyena-api-np3j.onrender.com/ (reported connected by the project owner). PostgreSQL stays on Aiven. The Android app connects to Render over HTTPS. Your computer is needed for development, not for serving requests once deployment is verified.
 
 ## 1. Refresh the mock catalog
 
@@ -56,7 +56,7 @@ HYENA_API_BASE_URL=https://YOUR-ACTUAL-SERVICE.onrender.com/
 
 Replace the hostname with Render's actual URL and keep the trailing slash. This URL is public configuration, not a database credential. Sync Gradle and rebuild/reinstall the app; it is compiled into BuildConfig. A command-line alternative is `./gradlew :app:assembleDebug -PHYENA_API_BASE_URL=https://YOUR-ACTUAL-SERVICE.onrender.com/`.
 
-Without the property, debug/development builds retain the existing LAN URL. Do not distribute a release configured for LAN HTTP; use the deployed HTTPS property when building it. No Aiven password, CA file, or curator key belongs in the Android build.
+Without the property, builds use https://hyena-api-np3j.onrender.com/. For local development, override HYENA_API_BASE_URL with your computer’s LAN URL. Do not distribute a release configured for LAN HTTP; use the deployed HTTPS property when building it. No Aiven password, CA file, or curator key belongs in the Android build.
 
 ## 5. Prove independence from your computer
 
