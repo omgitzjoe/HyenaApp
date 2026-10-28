@@ -1,7 +1,6 @@
 # Hyena App Software Design Description
-
-**Version:** 0.1 — Draft design  
-**Date:** October 3, 2026  
+**Version:** 0.2 — Working design
+**Date:** October-28-2026
 **Project owner:** Joseph Tolley  
 **Intended repository path:** `doc/Hyena_App_SDD.md`
 
@@ -15,13 +14,13 @@ This document describes how we plan to implement the requirements in the Hyena A
 
 The current repository documents were read before preparing this design:
 
-| Source | Version or reference | Role |
-| --- | --- | --- |
-| `doc/Hyena_App_SRS.md` | Version 1.0; blob `42af497216b97b1101f64e9f13fd05ddbe2659be` | Current requirement baseline |
-| `doc/HyenaApp_Blueprint.md` | Blob `8227f4066d820cc711f878b46dee7deeb56c41c5` | Product direction and longer-term ideas |
-| `app/build.gradle.kts` | Read October 3, 2026 | Existing Android configuration |
-| `app/src/main/java/com/example/hyenaapp/MainActivity.kt` | Read October 3, 2026 | Existing application entry point |
-| `app/src/main/AndroidManifest.xml` | Read October 3, 2026 | Existing permissions and application configuration |
+| Source                                                   | Version or reference                                         | Role                                               |
+|----------------------------------------------------------|--------------------------------------------------------------|----------------------------------------------------|
+| `doc/Hyena_App_SRS.md`                                   | Version 1.0; blob `42af497216b97b1101f64e9f13fd05ddbe2659be` | Current requirement baseline                       |
+| `doc/HyenaApp_Blueprint.md`                              | Blob `8227f4066d820cc711f878b46dee7deeb56c41c5`              | Product direction and longer-term ideas            |
+| `app/build.gradle.kts`                                   | Read October 3, 2026                                         | Existing Android configuration                     |
+| `app/src/main/java/com/example/hyenaapp/MainActivity.kt` | Read October 3, 2026                                         | Existing application entry point                   |
+| `app/src/main/AndroidManifest.xml`                       | Read October 3, 2026                                         | Existing permissions and application configuration |
 
 The SRS governs release scope where the documents differ. The blueprint places accounts outside the MVP and includes maps in its broader MVP list. The newer SRS requires optional account access for saving and classifies maps and Surprise Me as optional. This design follows the SRS. We should reconcile those blueprint sections during the next documentation update.
 
@@ -54,19 +53,19 @@ flowchart TD
 
 ### 2.2 Working choices
 
-| Area | Proposed design | Reason |
-| --- | --- | --- |
-| Android presentation | Compose, Material 3, screen-scoped ViewModels, immutable UI state | Extend the current app and make loading and errors explicit |
-| Navigation | Compose navigation with Home, Explore, Saved, Details, Area, and Account destinations | Follow the blueprint while keeping optional features removable |
-| Async work | Kotlin coroutines and StateFlow | Keep requests outside composables and expose observable state |
-| Networking | Retrofit with a compatible JSON converter; DTOs separate from domain models | Centralize API calls and keep server fields out of presentation code |
-| Local preferences | DataStore for selected area and filter preferences | Preserve lightweight settings without storing the whole server database |
-| Session storage | App-private storage encrypted using an Android Keystore-backed key | Persist a session without keeping a plaintext bearer token or password |
-| Backend | Node.js with Express and the `pg` driver | Use a small service with explicit SQL and module boundaries |
-| Database changes | Ordered SQL migrations tracked in a schema-migrations table | Reproduce the schema and make updates reviewable |
-| Authentication | Random opaque bearer tokens backed by revocable database sessions | Keep sign-out and session revocation straightforward |
-| Recurrence | Evaluate bounded date ranges on the server using local dates and an IANA zone | Give every client the same availability result |
-| Initial data | Validated, repeatable seed files and scripts | Make demonstration data reproducible |
+| Area                 | Proposed design                                                                       | Reason                                                                  |
+|----------------------|---------------------------------------------------------------------------------------|-------------------------------------------------------------------------|
+| Android presentation | Compose, Material 3, screen-scoped ViewModels, immutable UI state                     | Extend the current app and make loading and errors explicit             |
+| Navigation           | Compose navigation with Home, Explore, Saved, Details, Area, and Account destinations | Follow the blueprint while keeping optional features removable          |
+| Async work           | Kotlin coroutines and StateFlow                                                       | Keep requests outside composables and expose observable state           |
+| Networking           | Retrofit with a compatible JSON converter; DTOs separate from domain models           | Centralize API calls and keep server fields out of presentation code    |
+| Local preferences    | DataStore for selected area and filter preferences                                    | Preserve lightweight settings without storing the whole server database |
+| Session storage      | App-private storage encrypted using an Android Keystore-backed key                    | Persist a session without keeping a plaintext bearer token or password  |
+| Backend              | Node.js with Express and the `pg` driver                                              | Use a small service with explicit SQL and module boundaries             |
+| Database changes     | Ordered SQL migrations tracked in a schema-migrations table                           | Reproduce the schema and make updates reviewable                        |
+| Authentication       | Random opaque bearer tokens backed by revocable database sessions                     | Keep sign-out and session revocation straightforward                    |
+| Recurrence           | Evaluate bounded date ranges on the server using local dates and an IANA zone         | Give every client the same availability result                          |
+| Initial data         | Validated, repeatable seed files and scripts                                          | Make demonstration data reproducible                                    |
 
 Library versions must be chosen against the existing Gradle configuration and locked when dependencies are added. This document does not prescribe unverified version numbers.
 
@@ -80,38 +79,38 @@ Home, Explore, Details, area selection, optional account access, and Saved are t
 
 Keep `MainActivity` as the entry point and extend the existing theme. The following package names are proposed beneath `com.example.hyenaapp`:
 
-| Package | Responsibilities and representative files |
-| --- | --- |
-| `navigation` | `HyenaNavGraph`, typed routes, bottom navigation |
-| `ui.home` | Home screen and `HomeViewModel` |
-| `ui.explore` | Search, filters, results, and `ExploreViewModel` |
-| `ui.details` | Experience details and save actions |
-| `ui.saved` | Account-owned saved list and availability labels |
-| `ui.account` | Registration, sign-in, and account controls |
-| `ui.area` | Selection of supported discovery areas |
-| `ui.components` | Experience cards, filter chips, loading and error views |
-| `ui.theme` | Existing theme, typography, and color definitions |
-| `domain.model` | `Experience`, `Occurrence`, `Business`, `Category`, `DiscoveryArea` |
-| `domain.usecase` | Shared discovery and save orchestration where useful |
-| `data.remote` | API interface, DTOs, response parsing |
-| `data.repository` | Experience, saved-item, account, and area repositories |
-| `data.local` | Area preferences and protected session storage |
+| Package           | Responsibilities and representative files                           |
+|-------------------|---------------------------------------------------------------------|
+| `navigation`      | `HyenaNavGraph`, typed routes, bottom navigation                    |
+| `ui.home`         | Home screen and `HomeViewModel`                                     |
+| `ui.explore`      | Search, filters, results, and `ExploreViewModel`                    |
+| `ui.details`      | Experience details and save actions                                 |
+| `ui.saved`        | Account-owned saved list and availability labels                    |
+| `ui.account`      | Registration, sign-in, and account controls                         |
+| `ui.area`         | Selection of supported discovery areas                              |
+| `ui.components`   | Experience cards, filter chips, loading and error views             |
+| `ui.theme`        | Existing theme, typography, and color definitions                   |
+| `domain.model`    | `Experience`, `Occurrence`, `Business`, `Category`, `DiscoveryArea` |
+| `domain.usecase`  | Shared discovery and save orchestration where useful                |
+| `data.remote`     | API interface, DTOs, response parsing                               |
+| `data.repository` | Experience, saved-item, account, and area repositories              |
+| `data.local`      | Area preferences and protected session storage                      |
 
-For simple retrieval, a ViewModel can call a repository directly. Use cases are introduced for shared or multi-step behavior rather than one wrapper for every method. A small application container can supply repositories and ViewModel factories initially.
+For simple retrieval, a ViewModel can call a repository directly. Use cases are introduced for shared or multistep behavior rather than one wrapper for every method. A small application container can supply repositories and ViewModel factories initially.
 
 ### 3.2 Navigation and screens
 
-| Screen or route | Content and actions | Exit behavior |
-| --- | --- | --- |
-| `area` | Search supported city/postal-code labels; select one area | Persist area ID, then open Home |
-| `home` | Selected area, Today/Tonight controls, upcoming cards, search entry | Open Details or Explore; change area |
-| `explore` | Keyword input, category filter, day/time filter, ordered results | Open Details; preserve filters on Back |
-| `details/{experienceId}` | Business, description, categories, offer/price, venue, schedule, requirements, source link, Save | Return to originating screen with its state intact |
-| `saved` | Upcoming/available items and a separate unavailable group | Open Details or remove a save |
-| `sign-in` | Email and password with inline validation | Resume the pending save after success |
-| `register` | Email, password, optional display name | Create account/session and resume intended action |
-| `account` | Account summary and sign-out | Clear private state and return to visitor behavior |
-| `map` | Optional provider-backed markers and listing previews | Open Details; hidden from navigation until implemented |
+| Screen or route          | Content and actions                                                                              | Exit behavior                                          |
+|--------------------------|--------------------------------------------------------------------------------------------------|--------------------------------------------------------|
+| `area`                   | Search supported city/postal-code labels; select one area                                        | Persist area ID, then open Home                        |
+| `home`                   | Selected area, Today/Tonight controls, upcoming cards, search entry                              | Open Details or Explore; change area                   |
+| `explore`                | Keyword input, category filter, day/time filter, ordered results                                 | Open Details; preserve filters on Back                 |
+| `details/{experienceId}` | Business, description, categories, offer/price, venue, schedule, requirements, source link, Save | Return to originating screen with its state intact     |
+| `saved`                  | Upcoming/available items and a separate unavailable group                                        | Open Details or remove a save                          |
+| `sign-in`                | Email and password with inline validation                                                        | Resume the pending save after success                  |
+| `register`               | Email, password, optional display name                                                           | Create account/session and resume intended action      |
+| `account`                | Account summary and sign-out                                                                     | Clear private state and return to visitor behavior     |
+| `map`                    | Optional provider-backed markers and listing previews                                            | Open Details; hidden from navigation until implemented |
 
 Bottom navigation initially contains Home, Explore, and Saved. Add Map only when the optional feature is usable. Settings/account controls are reachable from Home. A visitor entering Saved sees a sign-in explanation with a way to continue browsing.
 
@@ -138,7 +137,7 @@ Each data-driven screen exposes one state containing `Loading`, `Content`, `Empt
 
 Search input is debounced by a proposed 300 ms. Changing a query or filter cancels or supersedes the previous request; a late response for old filters cannot replace current results. An area change clears result pagination. Configuration changes retain state through ViewModels, and selected area/preferences survive restart through local storage.
 
-A save button displays progress while its request is pending. Update the saved state after the server confirms success; show a retryable error on failure. Do not silently mark a failed request as saved. After successful login, resume a pending save only if its experience remains valid and the user has not cancelled the action.
+A save button displays progress while its request is pending. Update the saved state after the server confirms success; show a retryable error on failure. Do not silently mark a failed request as saved. After successful login, resume a pending save only if its experience remains valid and the user has not canceled the action.
 
 ### 3.4 Local data and privacy
 
@@ -152,28 +151,55 @@ Use semantic labels, readable contrast, font scaling, and accessible touch targe
 
 The proposed `backend/` directory is separate from the existing `app/` module.
 
-| Module | Responsibility |
-| --- | --- |
-| `src/app` | Express configuration, request IDs, JSON parsing, route mounting, error handler |
-| `src/routes` | Areas, categories, experiences, auth, and current-user saved endpoints |
-| `src/middleware` | Request validation, session authentication, rate limiting |
-| `src/services/discovery` | Compose area, category, search, and occurrence filters |
-| `src/services/recurrence` | Generate and classify local-time occurrences |
-| `src/services/auth` | Registration, password verification, session issuance/revocation |
-| `src/services/saved` | Save, unsave, retrieve, and availability grouping |
-| `src/repositories` | Parameterized SQL and transaction boundaries |
-| `db/migrations` | Numbered schema changes |
-| `db/seeds` | Curated dataset and repeatable loading process |
-| `tests` | Service tests and API/database integration checks |
+| Module                    | Responsibility                                                                  |
+|---------------------------|---------------------------------------------------------------------------------|
+| `src/app`                 | Express configuration, request IDs, JSON parsing, route mounting, error handler |
+| `src/routes`              | Areas, categories, experiences, auth, and current-user saved endpoints          |
+| `src/middleware`          | Request validation, session authentication, rate limiting                       |
+| `src/services/discovery`  | Compose area, category, search, and occurrence filters                          |
+| `src/services/recurrence` | Generate and classify local-time occurrences                                    |
+| `src/services/auth`       | Registration, password verification, session issuance/revocation                |
+| `src/services/saved`      | Save, unsave, retrieve, and availability grouping                               |
+| `src/repositories`        | Parameterized SQL and transaction boundaries                                    |
+| `db/migrations`           | Numbered schema changes                                                         |
+| `db/seeds`                | Curated dataset and repeatable loading process                                  |
+| `tests`                   | Service tests and API/database integration checks                               |
 
 Routes validate input, call services, and map outcomes to HTTP. Services own rules. Repositories own SQL. Database connections come from one bounded pool; write transactions use the same checked-out connection until commit or rollback.
 
 ### 4.2 Listing maintenance
 
-The project curator maintains records using validated seed/import scripts. There are no public listing write endpoints in the MVP. Importing one listing, its schedule, weekdays, and category associations is atomic. Use stable seed IDs and upsert known records so rerunning a seed does not duplicate them. Keep production import credentials outside the Android client.
+The project curator can maintain listings through seed scripts and protected API endpoints. Seed scripts provide repeatable development fixtures. The curator API supports creating experiences, updating selected text fields, and deactivating listings.
 
+| Method | Path                                          | Implemented behavior                                                   |
+|--------|-----------------------------------------------|------------------------------------------------------------------------|
+| GET    | `/api/v1/curator/health`                      | Verify curator access                                                  |
+| POST   | `/api/v1/curator/experiences`                 | Create an experience, schedule, recurring weekdays, and category links |
+| PATCH  | `/api/v1/curator/experiences/{id}`            | Update title, description, offer text, or restrictions                 |
+| PATCH  | `/api/v1/curator/experiences/{id}/deactivate` | Set is_active to false while preserving related records                |
+
+Curator routes require a development API key supplied through the Authorization header as a Bearer token. The configured key is loaded from the backend environment and checked by requireCurator middleware. It must not be committed to Git or included in the Android application. This is separate from the planned user-account session system.
+
+Creation requests are validated with Zod before database writes. Validation includes required fields, UUID formats, decimal price strings, currency requirements, named time zones, schedule dates and times, and recurring weekdays. The creation handler also verifies that the business and its discovery area are active and that all category IDs exist.
+
+The experience, schedule, category links, and weekdays are written through one PostgreSQL client in one transaction. Success commits all changes. Failure rolls back the transaction, and the connection is released afterward.
+
+Partial updates modify only supplied fields and maintain updated_at. Explicit null values can clear optional offer text or restrictions. This endpoint does not currently edit numeric prices, schedules, category links, or business associations.
+
+Deactivation preserves the experience and its saved references. Public retrieval excludes inactive experiences, businesses, and areas. Editing an inactive experience does not reactivate it.
+
+The development workflow uses localhost for key-bearing tests. Deployment requires HTTPS. Individual curator accounts, role-based access, and curator audit logging remain future work.
 ## 5 API contracts
 
+### Current implementation status
+
+The following sections describe the target API design. The currently implemented endpoints and setup instructions are documented in backend/readme.md.
+
+Public listing retrieval, keyword search, single-experience details, category lookup, active-area lookup, and protected curator management are implemented.
+
+Discovery currently returns at most 20 listings ordered by title and ID. Search is applied before that limit. Date-window filtering, occurrence calculation, upcoming-occurrence ordering, and cursor pagination remain planned. The response example in Section 5.4 represents the target occurrence-based response rather than the current flat listing response.
+
+User registration, login, account sessions, and saved-experience endpoints remain planned. Their database tables exist, but the curator key does not implement those account features.
 ### 5.1 Conventions
 
 Base path: `/api/v1`. JSON field names use camelCase. IDs are UUID strings. Dates are `YYYY-MM-DD`; local times are `HH:mm:ss`; occurrence timestamps are ISO 8601 instants with `Z` or an explicit offset. Return the IANA `timeZone` alongside occurrence instants so the app can display venue-local time.
@@ -182,35 +208,35 @@ Use `Authorization: Bearer <session-token>` for private operations. Public disco
 
 ### 5.2 Endpoints
 
-| Method | Path | Access | Request and result |
-| --- | --- | --- | --- |
-| GET | `/health` | Public, outside versioned API | Basic service status; do not expose credentials or detailed topology |
-| GET | `/api/v1/areas?q=...` | Public | Search supported area labels; return IDs, display labels, and time zones |
-| GET | `/api/v1/categories` | Public | Category IDs, names, slugs, and optional icon identifiers |
-| GET | `/api/v1/experiences` | Public | Filtered discovery results with one next matching occurrence per experience |
-| GET | `/api/v1/experiences/{id}` | Public for active records; authenticated saved owner for unavailable records | Experience/business/category detail, schedule, and relevant occurrences |
-| POST | `/api/v1/auth/register` | Public, rate limited | Email, password, optional display name; return user and session; HTTP 201 |
-| POST | `/api/v1/auth/login` | Public, rate limited | Email/password; return user and session; HTTP 200 |
-| POST | `/api/v1/auth/logout` | Session required | Revoke current session; HTTP 204 |
-| GET | `/api/v1/me` | Session required | Current user summary without password or session hashes |
-| GET | `/api/v1/me/saved-experiences` | Session required | Saved listings with current availability and next occurrence |
-| PUT | `/api/v1/me/saved-experiences/{experienceId}` | Session required | Idempotent save; HTTP 201 if created, HTTP 200 if already saved |
-| DELETE | `/api/v1/me/saved-experiences/{experienceId}` | Session required | Idempotent removal; HTTP 204 even if already absent |
-| DELETE | `/api/v1/me` | Session and password confirmation required | Delete account, saved links, and sessions in one transaction; HTTP 204 |
+| Method | Path                                          | Access                                                                       | Request and result                                                          |
+|--------|-----------------------------------------------|------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| GET    | `/health`                                     | Public, outside versioned API                                                | Basic service status; do not expose credentials or detailed topology        |
+| GET    | `/api/v1/areas?q=...`                         | Public                                                                       | Search supported area labels; return IDs, display labels, and time zones    |
+| GET    | `/api/v1/categories`                          | Public                                                                       | Category IDs, names, slugs, and optional icon identifiers                   |
+| GET    | `/api/v1/experiences`                         | Public                                                                       | Filtered discovery results with one next matching occurrence per experience |
+| GET    | `/api/v1/experiences/{id}`                    | Public for active records; authenticated saved owner for unavailable records | Experience/business/category detail, schedule, and relevant occurrences     |
+| POST   | `/api/v1/auth/register`                       | Public, rate limited                                                         | Email, password, optional display name; return user and session; HTTP 201   |
+| POST   | `/api/v1/auth/login`                          | Public, rate limited                                                         | Email/password; return user and session; HTTP 200                           |
+| POST   | `/api/v1/auth/logout`                         | Session required                                                             | Revoke current session; HTTP 204                                            |
+| GET    | `/api/v1/me`                                  | Session required                                                             | Current user summary without password or session hashes                     |
+| GET    | `/api/v1/me/saved-experiences`                | Session required                                                             | Saved listings with current availability and next occurrence                |
+| PUT    | `/api/v1/me/saved-experiences/{experienceId}` | Session required                                                             | Idempotent save; HTTP 201 if created, HTTP 200 if already saved             |
+| DELETE | `/api/v1/me/saved-experiences/{experienceId}` | Session required                                                             | Idempotent removal; HTTP 204 even if already absent                         |
+| DELETE | `/api/v1/me`                                  | Session and password confirmation required                                   | Delete account, saved links, and sessions in one transaction; HTTP 204      |
 
 The account-deletion endpoint is a proposed addition to support the SRS privacy requirement. Password reset and email verification are not designed here and require a scope decision before a public launch; this draft supports a controlled project demonstration.
 
 ### 5.3 Discovery parameters
 
-| Parameter | Rule |
-| --- | --- |
-| `areaId` | Required supported area UUID; restrict results to its business membership |
-| `q` | Optional trimmed keyword string; proposed maximum 100 characters |
-| `categoryId` | Optional valid category UUID |
-| `window` | `today`, `tonight`, `now`, or `date`; Today is the default |
-| `date` | Required only for `window=date`; interpreted in each listing’s venue time zone |
-| `limit` | Default 20, maximum 100 |
-| `cursor` | Optional opaque page cursor bound to filters and evaluation time |
+| Parameter    | Rule                                                                           |
+|--------------|--------------------------------------------------------------------------------|
+| `areaId`     | Required supported area UUID; restrict results to its business membership      |
+| `q`          | Optional trimmed keyword string; proposed maximum 100 characters               |
+| `categoryId` | Optional valid category UUID                                                   |
+| `window`     | `today`, `tonight`, `now`, or `date`; Today is the default                     |
+| `date`       | Required only for `window=date`; interpreted in each listing’s venue time zone |
+| `limit`      | Default 20, maximum 100                                                        |
+| `cursor`     | Optional opaque page cursor bound to filters and evaluation time               |
 
 Unknown filter values return 400. An unknown area returns 400 with `INVALID_AREA`; an empty supported area returns 200 with an empty list. A date query returns a single local calendar-day window. Larger date ranges may be added later but must remain bounded; the internal recurrence service accepts at most 31 days per evaluation.
 
@@ -265,14 +291,14 @@ The detail response additionally includes description, full address, website/sou
 }
 ```
 
-| Status | Meaning |
-| --- | --- |
-| 400 | Invalid request fields, area, filter, date, or cursor |
-| 401 | Missing, invalid, revoked, or expired session; login failures use one generic message |
-| 403 | Authenticated action is forbidden |
-| 404 | Experience is missing or unavailable to this caller |
-| 409 | Registration conflicts with an existing normalized email |
-| 429 | Rate limit exceeded; provide retry guidance |
+| Status     | Meaning                                                                                            |
+|------------|----------------------------------------------------------------------------------------------------|
+| 400        | Invalid request fields, area, filter, date, or cursor                                              |
+| 401        | Missing, invalid, revoked, or expired session; login failures use one generic message              |
+| 403        | Authenticated action is forbidden                                                                  |
+| 404        | Experience is missing or unavailable to this caller                                                |
+| 409        | Registration conflicts with an existing normalized email                                           |
+| 429        | Rate limit exceeded; provide retry guidance                                                        |
 | 500 or 503 | Unexpected error or unavailable dependency; expose a request ID, not internal SQL or a stack trace |
 
 ## 6 PostgreSQL design
@@ -289,53 +315,53 @@ Use foreign keys and check constraints, plus transactional service validation fo
 
 Supported-area records avoid requiring a live geocoding provider for MVP. The initial area and postal-code coverage are curator-defined.
 
-| Column | Type | Constraints or meaning |
-| --- | --- | --- |
-| `id` | uuid | Primary key |
-| `name` | text | Required display label |
-| `slug` | text | Required unique identifier |
-| `postal_codes` | text[] | Optional supported search aliases |
-| `time_zone` | text | Required valid IANA zone |
+| Column                  | Type         | Constraints or meaning                            |
+|-------------------------|--------------|---------------------------------------------------|
+| `id`                    | uuid         | Primary key                                       |
+| `name`                  | text         | Required display label                            |
+| `slug`                  | text         | Required unique identifier                        |
+| `postal_codes`          | text[]       | Optional supported search aliases                 |
+| `time_zone`             | text         | Required valid IANA zone                          |
 | `latitude`, `longitude` | numeric(9,6) | Optional area center; both present or both absent |
-| `is_active` | boolean | Required, default true |
+| `is_active`             | boolean      | Required, default true                            |
 
 #### businesses
 
-| Column | Type | Constraints or meaning |
-| --- | --- | --- |
-| `id` | uuid | Primary key |
-| `area_id` | uuid | Required FK to discovery_areas; delete restricted |
-| `name` | text | Required, nonblank; names need not be globally unique |
-| `description` | text | Optional |
-| `address`, `city`, `region`, `postal_code` | text | Address/city required for published MVP listings; remaining fields as available |
-| `latitude`, `longitude` | numeric(9,6) | Optional venue coordinates; latitude −90 to 90, longitude −180 to 180 |
-| `phone`, `website_url`, `image_url` | text | Optional curated contact/media fields |
-| `is_active` | boolean | Required, default true |
+| Column                                     | Type         | Constraints or meaning                                                          |
+|--------------------------------------------|--------------|---------------------------------------------------------------------------------|
+| `id`                                       | uuid         | Primary key                                                                     |
+| `area_id`                                  | uuid         | Required FK to discovery_areas; delete restricted                               |
+| `name`                                     | text         | Required, nonblank; names need not be globally unique                           |
+| `description`                              | text         | Optional                                                                        |
+| `address`, `city`, `region`, `postal_code` | text         | Address/city required for published MVP listings; remaining fields as available |
+| `latitude`, `longitude`                    | numeric(9,6) | Optional venue coordinates; latitude −90 to 90, longitude −180 to 180           |
+| `phone`, `website_url`, `image_url`        | text         | Optional curated contact/media fields                                           |
+| `is_active`                                | boolean      | Required, default true                                                          |
 
 A business is assigned to one discovery area in MVP. Coordinates describe the public venue, not the user’s precise location. Area-center distance, if shown later, must be labeled as distance from the selected area center.
 
 #### experiences
 
-| Column | Type | Constraints or meaning |
-| --- | --- | --- |
-| `id` | uuid | Primary key |
-| `business_id` | uuid | Required FK to businesses; delete restricted |
-| `title` | text | Required, nonblank |
-| `description` | text | Required |
-| `type` | text | Required; `OFFER`, `EVENT`, `ACTIVITY`, or `SPECIAL` |
-| `price_amount` | numeric(10,2) | Optional, nonnegative; zero is free |
-| `currency` | char(3) | Required when price_amount is present; initial dataset uses USD |
-| `price_label` | text | Optional offer wording, such as “$2 tacos” |
-| `requirements` | text | Optional restrictions, age limits, or purchase conditions |
-| `image_url`, `source_url` | text | Optional curated links |
-| `is_active` | boolean | Required, default true |
+| Column                    | Type          | Constraints or meaning                                          |
+|---------------------------|---------------|-----------------------------------------------------------------|
+| `id`                      | uuid          | Primary key                                                     |
+| `business_id`             | uuid          | Required FK to businesses; delete restricted                    |
+| `title`                   | text          | Required, nonblank                                              |
+| `description`             | text          | Required                                                        |
+| `type`                    | text          | Required; `OFFER`, `EVENT`, `ACTIVITY`, or `SPECIAL`            |
+| `price_amount`            | numeric(10,2) | Optional, nonnegative; zero is free                             |
+| `currency`                | char(3)       | Required when price_amount is present; initial dataset uses USD |
+| `price_label`             | text          | Optional offer wording, such as “$2 tacos”                      |
+| `requirements`            | text          | Optional restrictions, age limits, or purchase conditions       |
+| `image_url`, `source_url` | text          | Optional curated links                                          |
+| `is_active`               | boolean       | Required, default true                                          |
 
 #### categories and experience_categories
 
-| Table | Columns | Constraints |
-| --- | --- | --- |
-| `categories` | `id uuid`, `name text`, `slug text`, `icon_key text nullable` | Primary key ID; unique name and slug; nonblank names |
-| `experience_categories` | `experience_id uuid`, `category_id uuid` | Composite primary key; FKs to experiences and categories |
+| Table                   | Columns                                                       | Constraints                                              |
+|-------------------------|---------------------------------------------------------------|----------------------------------------------------------|
+| `categories`            | `id uuid`, `name text`, `slug text`, `icon_key text nullable` | Primary key ID; unique name and slug; nonblank names     |
+| `experience_categories` | `experience_id uuid`, `category_id uuid`                      | Composite primary key; FKs to experiences and categories |
 
 An experience can have several categories. The curator transaction must supply at least one category before publication. Tags, personal preferences, and recommendation weights are deferred until their feature scope is approved.
 
@@ -343,16 +369,16 @@ An experience can have several categories. The curator transaction must supply a
 
 One schedule per experience is sufficient for the initial release. Multiple same-day sessions can be added later through a schedule cardinality change.
 
-| Column | Type | Constraints or meaning |
-| --- | --- | --- |
-| `id` | uuid | Primary key |
-| `experience_id` | uuid | Required unique FK to experiences |
-| `kind` | text | `ONCE` or `WEEKLY` |
-| `start_date` | date | Required first eligible occurrence start date |
-| `end_date` | date | Required for ONCE and equal to start_date; optional inclusive final start date for WEEKLY |
-| `start_time`, `end_time` | time without time zone | Required local times |
-| `ends_next_day` | boolean | Required, default false; explicitly supports overnight occurrences |
-| `time_zone` | text | Required valid IANA zone, typically the area’s zone |
+| Column                   | Type                   | Constraints or meaning                                                                    |
+|--------------------------|------------------------|-------------------------------------------------------------------------------------------|
+| `id`                     | uuid                   | Primary key                                                                               |
+| `experience_id`          | uuid                   | Required unique FK to experiences                                                         |
+| `kind`                   | text                   | `ONCE` or `WEEKLY`                                                                        |
+| `start_date`             | date                   | Required first eligible occurrence start date                                             |
+| `end_date`               | date                   | Required for ONCE and equal to start_date; optional inclusive final start date for WEEKLY |
+| `start_time`, `end_time` | time without time zone | Required local times                                                                      |
+| `ends_next_day`          | boolean                | Required, default false; explicitly supports overnight occurrences                        |
+| `time_zone`              | text                   | Required valid IANA zone, typically the area’s zone                                       |
 
 Check `end_date IS NULL OR end_date >= start_date`. For ONCE require `end_date=start_date`. Same-day schedules require `end_time > start_time`. Overnight schedules require `end_time <= start_time`, allowing up to a full local day. Longer events require a future schedule extension. `start_date` and `end_date` constrain occurrence start dates; an overnight occurrence may end the day after its last eligible start date.
 
@@ -360,43 +386,43 @@ Validate the zone name in the service/import process against the selected timezo
 
 #### experience_schedule_days
 
-| Column | Type | Constraints or meaning |
-| --- | --- | --- |
-| `schedule_id` | uuid | FK to experience_schedules |
+| Column        | Type     | Constraints or meaning             |
+|---------------|----------|------------------------------------|
+| `schedule_id` | uuid     | FK to experience_schedules         |
 | `iso_weekday` | smallint | 1 through 7, Monday through Sunday |
 
 Composite primary key `(schedule_id, iso_weekday)`. WEEKLY schedules require at least one weekday; ONCE schedules require none. The curator service enforces this within the transaction because a simple row CHECK cannot count child rows.
 
 #### users
 
-| Column | Type | Constraints or meaning |
-| --- | --- | --- |
-| `id` | uuid | Primary key |
-| `email` | text | Required normalized email with unique constraint |
-| `display_name` | text | Optional |
+| Column          | Type | Constraints or meaning                                   |
+|-----------------|------|----------------------------------------------------------|
+| `id`            | uuid | Primary key                                              |
+| `email`         | text | Required normalized email with unique constraint         |
+| `display_name`  | text | Optional                                                 |
 | `password_hash` | text | Required salted adaptive hash, never returned by the API |
 
 Normalize email by trimming and applying the documented case-insensitive account policy before storage. Treat passwords as exact strings; do not trim or alter them. Password hash parameters are managed by the selected password library and recorded with the hash.
 
 #### saved_experiences
 
-| Column | Type | Constraints or meaning |
-| --- | --- | --- |
-| `user_id` | uuid | FK to users, ON DELETE CASCADE |
-| `experience_id` | uuid | FK to experiences, deletion restricted |
-| `created_at` | timestamptz | Required save timestamp |
+| Column          | Type        | Constraints or meaning                 |
+|-----------------|-------------|----------------------------------------|
+| `user_id`       | uuid        | FK to users, ON DELETE CASCADE         |
+| `experience_id` | uuid        | FK to experiences, deletion restricted |
+| `created_at`    | timestamptz | Required save timestamp                |
 
 Composite primary key `(user_id, experience_id)`. Saving references an experience series, not one generated occurrence. A weekly listing remains saved across weeks. Availability is recalculated at read time, and inactive or expired saved listings remain in the unavailable group until the user removes them.
 
 #### sessions
 
-| Column | Type | Constraints or meaning |
-| --- | --- | --- |
-| `id` | uuid | Primary key |
-| `user_id` | uuid | Required FK to users, ON DELETE CASCADE |
-| `token_hash` | text | Required unique SHA-256 digest of a high-entropy random token |
-| `created_at`, `expires_at` | timestamptz | Required; expiration must follow creation |
-| `revoked_at` | timestamptz | Nullable; set on sign-out |
+| Column                     | Type        | Constraints or meaning                                        |
+|----------------------------|-------------|---------------------------------------------------------------|
+| `id`                       | uuid        | Primary key                                                   |
+| `user_id`                  | uuid        | Required FK to users, ON DELETE CASCADE                       |
+| `token_hash`               | text        | Required unique SHA-256 digest of a high-entropy random token |
+| `created_at`, `expires_at` | timestamptz | Required; expiration must follow creation                     |
+| `revoked_at`               | timestamptz | Nullable; set on sign-out                                     |
 
 Using a fast hash for a random token is a separate design from hashing a human password, which requires an adaptive password hash. Do not store or log raw bearer tokens on the server.
 
@@ -430,11 +456,11 @@ Registration handles the unique-email conflict and creates user/session atomical
 
 All windows use half-open intervals `[start, end)`. This means an event ending exactly when a window begins does not overlap it.
 
-| View | Local window | Inclusion |
-| --- | --- | --- |
-| Today | Local midnight to the next midnight | Occurrence overlaps the day and has not ended at evaluation time |
-| Tonight | Proposed 17:00 to the next midnight | Occurrence overlaps the evening and has not ended at evaluation time |
-| Now | Evaluation instant | Start is at or before now, and end is after now |
+| View          | Local window                           | Inclusion                                                                                |
+|---------------|----------------------------------------|------------------------------------------------------------------------------------------|
+| Today         | Local midnight to the next midnight    | Occurrence overlaps the day and has not ended at evaluation time                         |
+| Tonight       | Proposed 17:00 to the next midnight    | Occurrence overlaps the evening and has not ended at evaluation time                     |
+| Now           | Evaluation instant                     | Start is at or before now, and end is after now                                          |
 | Selected date | Midnight to next midnight on that date | Any occurrence overlapping that date; label past occurrences if a past date is requested |
 
 The SRS proposed “through 11:59 p.m.”; midnight as an exclusive upper bound includes that complete final minute. The 17:00 cutoff is still a proposal. Derive Today/Tonight dates separately in each schedule’s IANA zone. Never derive the venue’s date from the phone’s current time zone.
@@ -499,12 +525,12 @@ The account-deletion transaction removes account identifiers, saved links, and a
 
 ### 9.1 Planned repository additions
 
-| Path | Planned contents |
-| --- | --- |
-| `app/` | Extend the existing Android project |
-| `backend/` | API source, dependency lockfile, tests, migrations, seed process |
-| `doc/Hyena_App_SDD.md` | This design document |
-| `doc/` | Requirements, blueprint, later API/setup notes and screenshots |
+| Path                   | Planned contents                                                 |
+|------------------------|------------------------------------------------------------------|
+| `app/`                 | Extend the existing Android project                              |
+| `backend/`             | API source, dependency lockfile, tests, migrations, seed process |
+| `doc/Hyena_App_SDD.md` | This design document                                             |
+| `doc/`                 | Requirements, blueprint, later API/setup notes and screenshots   |
 
 Follow the blueprint’s feature-branch workflow. Suggested initial branches are `feature/navigation`, `feature/database`, and `feature/api`. Review changes and merge only after relevant checks pass.
 
@@ -537,41 +563,41 @@ Public GET requests may be retried with a small bounded delay. Avoid automatic r
 
 ### 11.1 Verification plan
 
-| Layer | Checks |
-| --- | --- |
-| Recurrence unit tests | Weekly weekdays, ONCE schedules, inclusive date bounds, overnight overlap, exact-end exclusion, DST gaps/overlaps, future weekly start dates |
-| Discovery service tests | Combined filters, expired exclusion, one result per experience, deterministic order, filtering before pagination, cursor/filter binding |
-| Database integration | Unique normalized emails, saved-pair deduplication, FK restrictions, publication validation, transaction rollback |
-| Authentication integration | Hash verification, session expiry/revocation, sign-out, two-user isolation, attempted ownership injection, account deletion |
-| Client ViewModel tests | Loading/content/empty/error, stale-response rejection, login continuation, failed save, account-state clearing |
-| Compose/device tests | Area → Home → Explore → Details → Save → Saved, Back navigation, font scaling, accessibility labels, SDK 28 and a current test device/emulator |
-| End-to-end checks | Seed → API → Android discovery; service outage; session expiry during saving; unavailable saved listing |
-| Performance checks | Record connection conditions, dataset size, API p95 target under 2 seconds, and discovery display target under 3 seconds from NFR-01 |
+| Layer                      | Checks                                                                                                                                         |
+|----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|
+| Recurrence unit tests      | Weekly weekdays, ONCE schedules, inclusive date bounds, overnight overlap, exact-end exclusion, DST gaps/overlaps, future weekly start dates   |
+| Discovery service tests    | Combined filters, expired exclusion, one result per experience, deterministic order, filtering before pagination, cursor/filter binding        |
+| Database integration       | Unique normalized emails, saved-pair deduplication, FK restrictions, publication validation, transaction rollback                              |
+| Authentication integration | Hash verification, session expiry/revocation, sign-out, two-user isolation, attempted ownership injection, account deletion                    |
+| Client ViewModel tests     | Loading/content/empty/error, stale-response rejection, login continuation, failed save, account-state clearing                                 |
+| Compose/device tests       | Area → Home → Explore → Details → Save → Saved, Back navigation, font scaling, accessibility labels, SDK 28 and a current test device/emulator |
+| End-to-end checks          | Seed → API → Android discovery; service outage; session expiry during saving; unavailable saved listing                                        |
+| Performance checks         | Record connection conditions, dataset size, API p95 target under 2 seconds, and discovery display target under 3 seconds from NFR-01           |
 
 These are planned tests. Creating this document does not mean they have passed. The performance targets require measurement against the implemented service and device conditions.
 
 ### 11.2 Traceability
 
-| Requirements | Design coverage |
-| --- | --- |
-| FR-01, FR-02 | Public routes, supported areas, first-run area selection |
-| FR-03, FR-04 | Discovery ordering and venue-local windows |
-| FR-05 | Detail screen and detail response |
-| FR-06, FR-07 | Keyword/category/time filters and stale-request handling |
-| FR-08 | Schedule tables and recurrence algorithm |
-| FR-09, FR-10 | Idempotent saved endpoints, Saved screen, series-based ownership |
-| FR-11, FR-12 | Registration/login/logout, sessions, per-user repository predicates |
-| FR-13 | UI states, API errors, bounded retry behavior |
-| FR-14, FR-15 | Optional Map route and eligible-candidate Surprise Me behavior |
-| FR-16 | Curated seed/import transactions |
-| NFR-01 | Query bounds, indexes, pagination, measured performance targets |
-| NFR-02, NFR-03 | HTTPS, password/session storage, ownership, deletion and retention |
-| NFR-04, NFR-05 | Navigation, semantic controls, touch targets and font scaling |
-| NFR-06 | Existing SDK baseline and device verification |
-| NFR-07 | Local date/time storage, named zones, explicit DST policy |
-| NFR-08 | FK/check/unique constraints and transactional validation |
+| Requirements   | Design coverage                                                       |
+|----------------|-----------------------------------------------------------------------|
+| FR-01, FR-02   | Public routes, supported areas, first-run area selection              |
+| FR-03, FR-04   | Discovery ordering and venue-local windows                            |
+| FR-05          | Detail screen and detail response                                     |
+| FR-06, FR-07   | Keyword/category/time filters and stale-request handling              |
+| FR-08          | Schedule tables and recurrence algorithm                              |
+| FR-09, FR-10   | Idempotent saved endpoints, Saved screen, series-based ownership      |
+| FR-11, FR-12   | Registration/login/logout, sessions, per-user repository predicates   |
+| FR-13          | UI states, API errors, bounded retry behavior                         |
+| FR-14, FR-15   | Optional Map route and eligible-candidate Surprise Me behavior        |
+| FR-16          | Curated seed/import transactions                                      |
+| NFR-01         | Query bounds, indexes, pagination, measured performance targets       |
+| NFR-02, NFR-03 | HTTPS, password/session storage, ownership, deletion and retention    |
+| NFR-04, NFR-05 | Navigation, semantic controls, touch targets and font scaling         |
+| NFR-06         | Existing SDK baseline and device verification                         |
+| NFR-07         | Local date/time storage, named zones, explicit DST policy             |
+| NFR-08         | FK/check/unique constraints and transactional validation              |
 | NFR-09, NFR-10 | Error state handling, module boundaries, migrations and documentation |
-| SR-01 | Build My Night deferred pending a separate design |
+| SR-01          | Build My Night deferred pending a separate design                     |
 
 ### 11.3 Immediate implementation sequence
 
@@ -586,18 +612,18 @@ These are planned tests. Creating this document does not mean they have passed. 
 
 ### 12.1 Decisions to review
 
-| Decision | Working proposal or unresolved detail |
-| --- | --- |
-| Backend framework | Node.js/Express proposed by the SRS; confirm before adding the service |
+| Decision                    | Working proposal or unresolved detail                                                                             |
+|-----------------------------|-------------------------------------------------------------------------------------------------------------------|
+| Backend framework           | Node.js/Express proposed by the SRS; confirm before adding the service                                            |
 | Network/client dependencies | Retrofit, coroutine state, DataStore, protected session storage; select compatible versions during implementation |
-| Initial area | Supported-area table and curated membership; city/postal coverage not chosen |
-| Tonight boundary | 17:00 to next midnight, exclusive; proposed |
-| DST gaps/overlaps | Shift gap times forward; earlier start/later end for overlaps; proposed |
-| Session and password method | Revocable opaque sessions and Argon2id; proposed |
-| Timezone library | Select one that supports the specified resolution rules |
-| Hosting and map provider | Undecided; mapping remains optional |
-| Public account readiness | Email verification, account recovery, backup retention, and public deployment policy require scope review |
-| Source-document consistency | Update blueprint account/map MVP wording to match the current SRS when reviewing scope |
+| Initial area                | Supported-area table and curated membership; city/postal coverage not chosen                                      |
+| Tonight boundary            | 17:00 to next midnight, exclusive; proposed                                                                       |
+| DST gaps/overlaps           | Shift gap times forward; earlier start/later end for overlaps; proposed                                           |
+| Session and password method | Revocable opaque sessions and Argon2id; proposed                                                                  |
+| Timezone library            | Select one that supports the specified resolution rules                                                           |
+| Hosting and map provider    | Undecided; mapping remains optional                                                                               |
+| Public account readiness    | Email verification, account recovery, backup retention, and public deployment policy require scope review         |
+| Source-document consistency | Update blueprint account/map MVP wording to match the current SRS when reviewing scope                            |
 
 ### 12.2 References
 
