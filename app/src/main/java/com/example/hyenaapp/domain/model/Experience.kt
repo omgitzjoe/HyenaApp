@@ -5,5 +5,7 @@ data class Experience(
     val title: String,
     val businessName: String,
     val schedule: String,
-    val offer: String
+    val offer: String,
+    val occurrenceStart: String? = null,
+    val occurrenceEnd: String? = null
 )

@@ -130,7 +130,7 @@ EXCEPTION WHEN check_violation THEN
 RAISE NOTICE 'PASS: Weekday outside range rejected';
 END;
 BEGIN
-INSERT INTO experience_schedule_days (schedule_id,iso_weekday) VALUES ('9525e557-dedf-50ed-9de8-9bebe8ac0547',2);
+INSERT INTO experience_schedule_days (schedule_id,iso_weekday) SELECT schedule_id,iso_weekday FROM experience_schedule_days ORDER BY schedule_id,iso_weekday LIMIT 1;
 RAISE EXCEPTION 'FAIL: Duplicate schedule weekday was accepted';
 EXCEPTION WHEN unique_violation THEN
 RAISE NOTICE 'PASS: Duplicate schedule weekday rejected';

@@ -1,7 +1,18 @@
+import java.net.URI
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+val apiBaseUrl = providers.gradleProperty("HYENA_API_BASE_URL")
+    .orElse("http://192.168.0.43:4010/").get()
+val apiUri = URI(apiBaseUrl)
+require(apiUri.scheme in listOf("http", "https") && apiUri.host != null &&
+    apiUri.userInfo == null && apiUri.query == null && apiUri.fragment == null && apiBaseUrl.endsWith("/")) {
+    "HYENA_API_BASE_URL must be an HTTP(S) base URL ending in / without credentials, query, or fragment."
+}
+val quotedApiBaseUrl = "\"" + apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "com.example.hyenaapp"
@@ -12,6 +23,7 @@ android {
     }
 
     defaultConfig {
+        buildConfigField("String", "API_BASE_URL", quotedApiBaseUrl)
         applicationId = "com.example.hyenaapp"
         minSdk = 28
         targetSdk = 37
@@ -35,6 +47,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }
@@ -42,6 +55,7 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

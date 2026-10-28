@@ -20,5 +20,14 @@ data class ExperienceDto(
     val startTime: String,
     val endTime: String,
     val endsNextDay: Boolean,
-    val timeZone: String
+    val timeZone: String,
+    val nextOccurrence: OccurrenceDto? = null
+)
+
+data class OccurrenceDto(
+    val startsAt: String,
+    val endsAt: String,
+    val timeZone: String,
+    val localDate: String,
+    val status: String
 )

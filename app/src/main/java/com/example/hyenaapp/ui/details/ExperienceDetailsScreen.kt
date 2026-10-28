@@ -20,7 +20,10 @@ fun ExperienceDetailsScreen(
     schedule: String,
     offer: String,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isSaved: Boolean = false,
+    savingEnabled: Boolean = true,
+    onToggleSave: () -> Unit = {}
 ) {
     Column(
         modifier = modifier
@@ -56,5 +59,9 @@ fun ExperienceDetailsScreen(
         )
 
         Text(text = offer)
+
+        Button(onClick = onToggleSave, enabled = savingEnabled) {
+            Text(if (isSaved) "Remove from saved" else "Save experience")
+        }
     }
 }
