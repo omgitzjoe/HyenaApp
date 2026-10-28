@@ -16,7 +16,8 @@ object ExperienceRepository {
         timeZone: String = ZoneId.systemDefault().id,
         nearby: NearbyLocation? = null,
         radiusMiles: Int = 10,
-        filters: DiscoveryFilters = DiscoveryFilters()
+        filters: DiscoveryFilters = DiscoveryFilters(),
+        limit: Int = 20
     ): List<Experience> {
         return ApiClient.api.getExperiences(
             query, window, if (nearby == null) areaId else null, timeZone,
@@ -24,8 +25,9 @@ object ExperienceRepository {
             categoryId = filters.categoryId,
             price = filters.priceMode,
             maxPrice = filters.maxPrice.takeIf { filters.priceMode == "max" },
-            currency = filters.currency.takeIf { filters.priceMode == "max" },
-            date = filters.date.takeIf { window == "date" }
+            currency = "USD".takeIf { filters.priceMode == "max" },
+            date = filters.date.takeIf { window == "date" },
+            limit = limit
         ).items.map { dto ->
             val offerLabel = dto.offer?.takeIf { it.isNotBlank() }
                 ?: dto.priceAmount?.let { amount ->
@@ -39,15 +41,21 @@ object ExperienceRepository {
                 businessName = dto.businessName,
                 schedule = dto.nextOccurrence?.let { formatOccurrence(it, ZoneId.of(timeZone)) }
                     ?: "No dated occurrence available",
-                offer = offerLabel
+                offer = offerLabel,
+                occurrenceStart = dto.nextOccurrence?.startsAt,
+                occurrenceEnd = dto.nextOccurrence?.endsAt
             )
         }
     }
 }
 
 internal fun formatOccurrence(occurrence: OccurrenceDto, zone: ZoneId = ZoneId.systemDefault()): String {
-    val start = Instant.parse(occurrence.startsAt).atZone(zone)
-    val end = Instant.parse(occurrence.endsAt).atZone(zone)
+    return formatInterval(occurrence.startsAt, occurrence.endsAt, zone)
+}
+
+internal fun formatInterval(startsAt: String, endsAt: String, zone: ZoneId): String {
+    val start = Instant.parse(startsAt).atZone(zone)
+    val end = Instant.parse(endsAt).atZone(zone)
     val dateTime = DateTimeFormatter.ofPattern("EEE, MMM d · HH:mm", Locale.US)
     val time = DateTimeFormatter.ofPattern("HH:mm", Locale.US)
     val endLabel = if (start.toLocalDate() == end.toLocalDate()) {
@@ -59,3 +67,9 @@ internal fun formatOccurrence(occurrence: OccurrenceDto, zone: ZoneId = ZoneId.s
 }
 
 data class NearbyLocation(val latitude: Double, val longitude: Double)
+
+fun displaySchedule(experience: Experience, timeZone: String): String {
+    return if (experience.occurrenceStart != null && experience.occurrenceEnd != null) {
+        formatInterval(experience.occurrenceStart, experience.occurrenceEnd, ZoneId.of(timeZone))
+    } else experience.schedule
+}

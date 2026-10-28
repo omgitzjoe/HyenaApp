@@ -111,7 +111,7 @@ http://localhost:4010/api/v1/experiences?window=date&date=2026-11-01
 http://localhost:4010/api/v1/experiences?window=all&limit=100
 ```
 
-Selected-date searches can include historical occurrences, marked `EXPIRED`. All dates explicitly browses active listings regardless of schedule expiry and returns a representative dated occurrence when resolvable (the next unexpired weekly occurrence, otherwise a historical/first occurrence). It is useful when testing old seed fixtures. The Android Home and Explore screens provide Today, Tonight, Now, and All dates chips; Home and Explore also provide shared category, price, and selected-date controls. Area selection is available as a fallback to Near me.
+Selected-date searches can include historical occurrences, marked `EXPIRED`. All dates explicitly browses active listings regardless of schedule expiry and returns a representative dated occurrence when resolvable (the next unexpired weekly occurrence, otherwise a historical/first occurrence). It is useful when testing old seed fixtures. Explore provides search, category, USD price, selected-date, and Today/Tonight/Now/All dates controls. Home independently requests today’s next 12 unended experiences. Area selection is available as a fallback to Near me.
 
 Time-filtered items retain the existing flat listing fields and add `nextOccurrence` containing `startsAt`, `endsAt`, `timeZone`, `localDate`, and `status` (`UPCOMING`, `ONGOING`, or `EXPIRED`). UTC timestamps are formatted in the phone’s zone on Android, including the end date for overnight events. A recurring listing appears once, with its earliest matching occurrence.
 
@@ -220,7 +220,7 @@ After pulling: restart `npm start`, sync Gradle, then run on the phone. Test gra
 
 ### Category, price, and date filters
 
-Home and Explore share search, category, applied price/currency, and date-window selections across tabs and activity recreation. Categories load from `/api/v1/categories` with loading/error/retry states. Selecting a date uses a calendar dialog; Cancel leaves the current window unchanged. Its UTC calendar representation is converted directly to an ISO date, avoiding a one-day shift on phones west of UTC. The API interprets that date in the supplied viewer time zone. Past dates may intentionally return historical occurrences.
+Explore owns search, category, applied USD price, and date-window selections, preserved across tab switches and activity recreation. These filters do not affect Home. Categories load from `/api/v1/categories` with loading/error/retry states. Selecting a date uses a calendar dialog; Cancel leaves the current window unchanged. Its UTC calendar representation is converted directly to an ISO date, avoiding a one-day shift on phones west of UTC. The API interprets that date in the supplied viewer time zone. Past dates may intentionally return historical occurrences.
 
 Price parameters combine with existing search/category/area/proximity/time filters:
 
@@ -233,7 +233,7 @@ Price parameters combine with existing search/category/area/proximity/time filte
 
 `free` requires numeric `price_amount = 0`, regardless of currency. Labels such as “Free entry” without a numeric zero are not inferred to be free. `any` includes listings with unknown prices; `free`/`max` exclude them. Maximum price compares only listings in the specified currency using PostgreSQL numeric arithmetic, before result limiting. Supplying maxPrice/currency outside max mode, malformed amounts, or an invalid mode returns a structured 400 response.
 
-The app offers USD/CAD/EUR/GBP, defaults to USD and an initial maximum of 25.00 when Maximum price is selected, and applies edited amounts only after **Apply maximum**. Invalid drafts stay on screen with a validation message and do not replace the applied filter. **Clear filters** restores empty search, All categories, Any price, Today, All areas, and a 10-mile radius; it also clears the captured location and cancels an in-progress location request.
+The app uses USD only and an initial maximum of 25.00 when Maximum price is selected, and applies edited amounts only after **Apply maximum**. Invalid drafts stay on screen with a validation message and do not replace the applied filter. **Clear filters** restores empty search, All categories, Any price, Today, All areas, and a 10-mile radius; it also clears the captured location and cancels an in-progress location request.
 
 Example API requests:
 
@@ -243,3 +243,15 @@ Example API requests:
 ```
 
 Validation: `npm test` covers price boundaries, zero/unknown prices, currencies, invalid parameters, and combined category/search/location/date/price filters. After pulling, restart the API, sync Gradle, and test on a device: select a category and Free, then Maximum price; enter invalid text and verify it does not apply; choose and cancel a date; switch tabs; Clear filters; and retry categories while the API is unavailable. Android builds/tests still require the local Android Studio environment because Gradle downloads are blocked here.
+
+### Screen responsibilities and saved experiences
+
+- **Home:** today’s earliest 12 unended experiences, including ongoing events, using the phone’s time zone and shared area/proximity. It has a Refresh button and last-update time. It fetches on entry, location/time-zone changes, and refresh; no automatic polling is performed. Home ignores Explore search/category/price/date settings and offers a shortcut to Explore.
+- **Explore:** all keyword, category, price, and calendar controls. Price entry uses USD only; the API retains currency-aware matching for future clients, with no exchange-rate conversion. Location remains shared with Home.
+- **Saved:** locally persisted snapshots saved from cards or Details, ordered newest save first. No sign-in or server saved endpoint is used. Snapshots are available offline and can be removed from cards, Details, or Saved. Schedules and offers may have changed since saving; this is stated on screen. The app stores absolute occurrence instants and reformats those in the current phone time zone. Saves are identified by experience ID, not by a particular weekly occurrence.
+
+Local storage uses the Android app’s private `saved_experiences` preferences. Writes run on an IO dispatcher and update visible state only after persistence succeeds. Loading/writing failures are shown, with retry, and unreadable data is not silently overwritten. This is a local prototype implementation; authenticated account synchronization and live availability revalidation remain future work. Clearing Explore filters never removes saved experiences.
+
+Categories now appear as horizontally scrollable choices, with explicit loading, HTTP failure, empty-data, and retry states. The endpoint queries core category fields and reads optional icon metadata without requiring an icon column. Backend tests exercise the actual schema plus the complete checked-in seed through the HTTP endpoint. This does not verify the running Aiven instance; if categories still fail on the phone, record the displayed HTTP status and inspect `http://localhost:4010/api/v1/categories` after restarting the API.
+
+Device acceptance checks: refresh Home and confirm at most 12 cards; choose a different date/category in Explore and verify Home is unchanged; save from a card and Details, switch to Saved, restart the app, and verify the saved cards remain; remove from Saved and verify the other screens update; disable networking and open Saved; change the phone zone and verify saved times update. Local snapshot serialization/removal tests are included under app/src/test, but Android tests/builds remain unverified here because Gradle downloads are blocked.

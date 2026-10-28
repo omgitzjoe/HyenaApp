@@ -37,7 +37,10 @@ fun ExploreScreen(
     filters: DiscoveryFilters = DiscoveryFilters(),
     filterControls: @Composable () -> Unit = {},
     onAreaChange: (String?) -> Unit = {},
-    onExperienceClick: (String, String, String, String) -> Unit = { _, _, _, _ -> }
+    savedIds: Set<String> = emptySet(),
+    savingEnabled: Boolean = true,
+    onToggleSave: (Experience) -> Unit = {},
+    onExperienceClick: (Experience) -> Unit = {}
 ) {
     var experiences by remember {
         mutableStateOf<List<Experience>>(emptyList())
@@ -129,14 +132,10 @@ fun ExploreScreen(
                         businessName = experience.businessName,
                         schedule = experience.schedule,
                         offer = experience.offer,
-                        onClick = {
-                            onExperienceClick(
-                                experience.title,
-                                experience.businessName,
-                                experience.schedule,
-                                experience.offer
-                            )
-                        }
+                        onClick = { onExperienceClick(experience) },
+                        isSaved = experience.id in savedIds,
+                        savingEnabled = savingEnabled,
+                        onToggleSave = { onToggleSave(experience) }
                     )
                 }
             }

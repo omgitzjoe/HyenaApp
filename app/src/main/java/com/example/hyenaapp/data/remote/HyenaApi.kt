@@ -17,7 +17,8 @@ interface HyenaApi {
         @Query("price") price: String = "any",
         @Query("maxPrice") maxPrice: String? = null,
         @Query("currency") currency: String? = null,
-        @Query("date") date: String? = null
+        @Query("date") date: String? = null,
+        @Query("limit") limit: Int = 20
     ): ExperienceResponse
 
     @GET("api/v1/categories")

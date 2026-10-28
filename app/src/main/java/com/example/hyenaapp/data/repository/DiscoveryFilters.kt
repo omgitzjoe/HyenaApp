@@ -7,6 +7,5 @@ data class DiscoveryFilters(
     val window: String = "today",
     val date: String? = null,
     val priceMode: String = "any",
-    val maxPrice: String = "25.00",
-    val currency: String = "USD"
+    val maxPrice: String = "25.00"
 )

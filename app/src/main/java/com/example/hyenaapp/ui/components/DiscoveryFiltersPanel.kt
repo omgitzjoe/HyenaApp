@@ -2,7 +2,6 @@ package com.example.hyenaapp.ui.components
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,8 +9,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
@@ -19,6 +16,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
+import retrofit2.HttpException
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,10 +45,8 @@ fun DiscoveryFiltersPanel(
 ) {
     var categories by remember { mutableStateOf<List<CategoryDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
-    var failed by remember { mutableStateOf(false) }
+    var failure by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableStateOf(0) }
-    var categoryOpen by remember { mutableStateOf(false) }
-    var currencyOpen by remember { mutableStateOf(false) }
     var showDate by remember { mutableStateOf(false) }
     var draftPrice by remember(filters.maxPrice, filters.priceMode) { mutableStateOf(filters.maxPrice) }
     val validPrice = Regex("\\d{1,8}(?:\\.\\d{1,2})?").matches(draftPrice)
@@ -59,7 +55,7 @@ fun DiscoveryFiltersPanel(
 
     LaunchedEffect(retry) {
         loading = true
-        failed = false
+        failure = null
         try {
             categories = ApiClient.api.getCategories().items
             if (latestFilters.categoryId != null && categories.none { it.id == latestFilters.categoryId }) {
@@ -68,7 +64,7 @@ fun DiscoveryFiltersPanel(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            failed = true
+            failure = if (error is HttpException) "Categories unavailable (HTTP ${error.code()}). Check or restart the API." else "Categories unavailable. Check your connection and retry."
         } finally {
             loading = false
         }
@@ -82,29 +78,23 @@ fun DiscoveryFiltersPanel(
             label = { Text("Search experiences") },
             singleLine = true
         )
-        Box {
-            OutlinedButton(onClick = { categoryOpen = true }, enabled = !loading) {
-                val name = categories.firstOrNull { it.id == filters.categoryId }?.name
-                Text(if (loading) "Loading categories…" else "Category: ${name ?: if (filters.categoryId == null) "All categories" else "Selected category"}")
-            }
-            DropdownMenu(expanded = categoryOpen, onDismissRequest = { categoryOpen = false }) {
-                DropdownMenuItem(text = { Text("All categories") }, onClick = {
-                    onFiltersChange(filters.copy(categoryId = null))
-                    categoryOpen = false
-                })
-                categories.forEach { category ->
-                    DropdownMenuItem(text = { Text(category.name) }, onClick = {
-                        onFiltersChange(filters.copy(categoryId = category.id))
-                        categoryOpen = false
-                    })
-                }
+        Text("Categories")
+        if (loading) Text("Loading categories…")
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(selected = filters.categoryId == null, onClick = { onFiltersChange(filters.copy(categoryId = null)) }, label = { Text("All categories") })
+            categories.forEach { category ->
+                FilterChip(selected = filters.categoryId == category.id, onClick = { onFiltersChange(filters.copy(categoryId = category.id)) }, label = { Text(category.name) })
             }
         }
-        if (failed) {
-            Text("Couldn't load categories.")
+        if (failure != null) {
+            Text(failure.orEmpty())
             TextButton(onClick = { retry++ }) { Text("Retry categories") }
         } else if (!loading && categories.isEmpty()) {
-            Text("No categories available.")
+            Text("The API returned no categories. Check the category data in the database.")
+            TextButton(onClick = { retry++ }) { Text("Reload categories") }
         }
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -117,21 +107,10 @@ fun DiscoveryFiltersPanel(
             }
         }
         if (filters.priceMode == "max") {
-            Box {
-                OutlinedButton(onClick = { currencyOpen = true }) { Text("Currency: ${filters.currency}") }
-                DropdownMenu(expanded = currencyOpen, onDismissRequest = { currencyOpen = false }) {
-                    listOf("USD", "CAD", "EUR", "GBP").forEach { code ->
-                        DropdownMenuItem(text = { Text(code) }, onClick = {
-                            onFiltersChange(filters.copy(currency = code))
-                            currencyOpen = false
-                        })
-                    }
-                }
-            }
             OutlinedTextField(
                 value = draftPrice,
                 onValueChange = { draftPrice = it.take(12) },
-                label = { Text("Maximum price (${filters.currency})") },
+                label = { Text("Maximum price (USD)") },
                 singleLine = true,
                 isError = !validPrice,
                 modifier = Modifier.fillMaxWidth()
@@ -140,7 +119,7 @@ fun DiscoveryFiltersPanel(
             Button(enabled = validPrice, onClick = {
                 onFiltersChange(filters.copy(maxPrice = draftPrice))
             }) { Text("Apply maximum") }
-            Text("Applied: up to ${filters.maxPrice} ${filters.currency}. Unknown prices excluded; no currency conversion.")
+            Text("Applied: up to ${filters.maxPrice} USD. Unknown prices excluded; no currency conversion.")
         } else if (filters.priceMode == "free") {
             Text("Only listings with a numeric price of zero. Unknown prices excluded.")
         }

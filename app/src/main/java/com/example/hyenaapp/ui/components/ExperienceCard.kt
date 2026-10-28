@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -19,7 +20,10 @@ fun ExperienceCard(
     schedule: String,
     offer: String,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit = {}
+    onClick: () -> Unit = {},
+    isSaved: Boolean = false,
+    savingEnabled: Boolean = true,
+    onToggleSave: (() -> Unit)? = null
 ) {
     Card(modifier = modifier
         .fillMaxWidth()
@@ -44,6 +48,11 @@ fun ExperienceCard(
                 text = offer,
                 style = MaterialTheme.typography.labelLarge
             )
+            onToggleSave?.let { toggle ->
+                TextButton(onClick = toggle, enabled = savingEnabled) {
+                    Text(if (isSaved) "Remove from saved" else "Save experience")
+                }
+            }
         }
     }
 }

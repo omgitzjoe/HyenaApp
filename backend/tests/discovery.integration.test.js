@@ -6,6 +6,7 @@ const { randomUUID } = require('node:crypto');
 const express = require('express');
 const { PGlite } = require('@electric-sql/pglite');
 const createExperienceRouter = require('../routes/experiences');
+const createCategoryRouter = require('../routes/categories');
 const { discoverExperiences } = require('../services/discovery');
 const { DiscoveryQueryError } = require('../validation/discovery');
 const clock = '2026-10-28T18:00:00Z';
@@ -42,6 +43,7 @@ before(async()=>{
     await addExperience('Inactive Area Event',{businessId:ids.inactiveAreaBusiness});
     ids.overnight=await addExperience('Yesterday Overnight',{startDate:'2026-10-27',startTime:'23:00',endTime:'01:00',overnight:true});
     const app=express();
+    app.use('/api/v1/categories',createCategoryRouter({pool:db,logger}));
     app.use('/api/v1/experiences',createExperienceRouter({pool:db,clock:()=>clock,logger}));
     server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
     url=`http://127.0.0.1:${server.address().port}/api/v1/experiences`;
@@ -179,4 +181,33 @@ test('malformed price requests return structured 400 responses', async () => {
     for(const query of ['?price=cheap','?price=max&maxPrice=-1&currency=USD','?price=max&maxPrice=10','?price=free&maxPrice=0']){
         const r=await get(query);assert.equal(r.status,400);assert.ok(r.body.error.code);
     }
+});
+
+test('category endpoint returns selectable category IDs and names', async () => {
+    const response=await fetch(url.replace('/experiences','/categories'));
+    const body=await response.json();
+    assert.equal(response.status,200);assert.equal(body.count,3);
+    assert.deepEqual(body.items.map(x=>x.name),['Food','Music','Unused']);
+    const music=body.items.find(x=>x.name==='Music');
+    assert.equal((await get('?categoryId='+music.id)).body.count,2);
+});
+test('category endpoint hides database failures', async () => {
+    const app=express();app.use('/categories',createCategoryRouter({pool:{async query(){throw Error('private database failure');}},logger}));
+    const local=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
+    try {
+        const response=await fetch(`http://127.0.0.1:${local.address().port}/categories`);
+        const body=await response.json();assert.equal(response.status,500);
+        assert.equal(body.error.code,'CATEGORIES_FETCH_FAILED');assert.ok(!JSON.stringify(body).includes('private'));
+    } finally { await new Promise(resolve=>local.close(resolve)); }
+});
+test('Home today limit returns twelve current/upcoming results and refresh reevaluates the clock', async () => {
+    const records=[];
+    try {
+        for(let n=0;n<15;n++) records.push(await addExperience('Today refresh fixture '+n));
+        const first=await discoverExperiences(db,{window:'today',limit:'12',timeZone:'America/Denver'},clock,logger);
+        assert.equal(first.items.length,12);assert.equal(first.hasMore,true);
+        assert.ok(first.items.every(x=>x.nextOccurrence.status==='UPCOMING'));
+        const later=await discoverExperiences(db,{window:'today',limit:'12',timeZone:'America/Denver'},'2026-10-29T04:00:00Z',logger);
+        assert.equal(later.count,0);
+    } finally { for(const id of records)await db.query('DELETE FROM experiences WHERE id=$1',[id]); }
 });

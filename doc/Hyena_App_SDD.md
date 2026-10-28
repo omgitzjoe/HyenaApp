@@ -1,5 +1,5 @@
 # Hyena App Software Design Description
-**Version:** 0.5 — Working design
+**Version:** 0.6 — Working design
 
 **Date:** October 28, 2026
 
@@ -28,11 +28,11 @@ The SRS governs release scope where the documents differ. The blueprint places a
 
 ### 1.3 Existing implementation
 
-The repository contains a Kotlin Android application using Jetpack Compose and Material 3. MainActivity launches HyenaApp with Home, Explore, and Saved tabs and an experience Details screen. Home and Explore retrieve listings through Retrofit with Gson and a shared repository. Explore sends keyword searches to the API with a 300 ms debounce. Details currently displays values passed from a selected card; the fuller backend detail endpoint is available but is not yet wired into that screen. Saved remains a placeholder, and account access and saved-item operations are not implemented.
+The repository contains a Kotlin Android application using Jetpack Compose and Material 3. MainActivity launches HyenaApp with Home, Explore, and Saved tabs and an experience Details screen. Home and Explore retrieve listings through Retrofit with Gson and a shared repository. Explore sends keyword searches to the API with a 300 ms debounce. Details currently displays values passed from a selected card; the fuller backend detail endpoint is available but is not yet wired into that screen. Saved implements private, on-device snapshots with save/remove controls on cards and Details. Account access, server saved-item endpoints, and cross-device synchronization remain planned.
 
 The namespace and application ID are `com.example.hyenaapp`; the minimum SDK is 28, target SDK is 37, and compile SDK is release 37 with minor API level 1. Java source and target compatibility are set to 11; these settings do not establish the Gradle runtime JDK requirement. The main manifest declares Internet permission, and the debug manifest permits local HTTP connections.
 
-The local Node.js/Express API connects to PostgreSQL hosted on Aiven through the `pg` connection pool with CA certificate verification. Implemented endpoints cover process/database health, listing retrieval and keyword search, individual experience details, categories, active discovery areas, and protected curator creation, text updates, and deactivation. The database schema, fictional seed data, and rollback-only constraint tests are stored in the repository. Date-window filtering, weekly recurrence, overnight overlap, and daylight-saving resolution are implemented. Home and Explore provide Today, Tonight, Now, and All dates controls and display computed occurrence times in the phone’s zone.
+The local Node.js/Express API connects to PostgreSQL hosted on Aiven through the `pg` connection pool with CA certificate verification. Implemented endpoints cover process/database health, listing retrieval and keyword search, individual experience details, categories, active discovery areas, and protected curator creation, text updates, and deactivation. The database schema, fictional seed data, and rollback-only constraint tests are stored in the repository. Date-window filtering, weekly recurrence, overnight overlap, and daylight-saving resolution are implemented. Explore provides Today, Tonight, Now, selected date, and All dates controls; Home independently shows today’s next 12 unended experiences and display computed occurrence times in the phone’s zone.
 
 ### 1.4 Design status
 
@@ -248,7 +248,7 @@ The account-deletion endpoint is a proposed addition to support the SRS privacy 
 
 Unknown filter values return 400. An unknown area returns 400 with `INVALID_AREA`; an empty supported area returns 200 with an empty list. A date query returns a single local calendar-day window. Larger date ranges may be added later but must remain bounded; the current implementation evaluates one selected day at a time. A future range endpoint must define its maximum span before implementation.
 
-Search matches title, description, business name, offer text, and category names case-insensitively. Category and time filters combine with AND. Escape literal wildcard characters if using SQL `ILIKE`, and parameterize all input. Search ranking is not part of the core ordering; time-filtered results sort by matching occurrence start, then experience ID. The explicit all-dates view retains title/ID ordering and does not calculate an occurrence.
+Search matches title, description, business name, offer text, and category names case-insensitively. Category and time filters combine with AND. Escape literal wildcard characters if using SQL `ILIKE`, and parameterize all input. Search ranking is not part of the core ordering; time-filtered results sort by matching occurrence start, then experience ID. The explicit all-dates view retains title/ID ordering and returns a representative dated occurrence when available.
 
 The planned cursor design contains the last sort key, an evaluation timestamp, and a hash of the filters, protected by a server signature. Expire it after a proposed five minutes. Continuation requests keep the first page’s time-window evaluation; a fresh search uses the current clock. Listing edits between pages can still change membership, so this is not a database snapshot. Reject mismatched or expired cursors with 400 and let the client restart the query.
 
@@ -662,10 +662,20 @@ Schedule wall times resolve in the venue zone, but Today/Tonight/date boundaries
 
 ### Implemented discovery filter controls
 
-Home and Explore share keyword, category, price, currency, and date-window state through HyenaApp; these non-location preferences survive activity recreation. Category choices come from `/api/v1/categories`, with loading/error/retry and removal handling. Both screens combine the selected filters with area or proximity and send them to the same discovery endpoint. Search is debounced on both screens.
+Explore owns keyword, category, USD price, and date-window state through HyenaApp; these preferences survive activity recreation and do not affect Home. Category choices come from `/api/v1/categories`, with loading/error/retry and removal handling. Explore combines its filters with area or proximity. Home sends its own Today request with limit=12. Search is debounced in Explore.
 
-Price modes are Any price, Free, and Maximum price. Unknown numeric prices are included only under Any price. Free requires numeric zero; display labels alone are not authoritative. Maximum price is an inclusive PostgreSQL numeric comparison restricted to an explicitly selected currency, with no currency conversion. The API accepts nonnegative decimal amounts up to 99999999.99 with at most two fractional digits and rejects contradictory or malformed price parameters. The UI supports USD, CAD, EUR, and GBP and separates draft price input from the applied maximum.
+Price modes are Any price, Free, and Maximum price. Unknown numeric prices are included only under Any price. Free requires numeric zero; display labels alone are not authoritative. Maximum price is an inclusive PostgreSQL numeric comparison restricted to an explicitly selected currency, with no currency conversion. The API accepts nonnegative decimal amounts up to 99999999.99 with at most two fractional digits and rejects contradictory or malformed price parameters. The UI uses USD only and separates draft price input from the applied maximum.
 
 A calendar dialog selects one ISO date for window=date; its UTC calendar value is preserved without converting that calendar selection through the phone zone. The recurrence window then uses the viewer zone as designed. Cancel preserves the current filter. Clear filters resets search/category/price/window/location choices, restores Today and a 10-mile radius, and cancels an in-progress location request. Filter state is consistent between tabs; coordinates remain in memory only.
 
 Backend tests cover combinations and numeric/currency boundaries. Device verification remains required for the Compose controls, calendar, and lifecycle persistence because this environment cannot download Gradle.
+
+### Home, Explore, and local Saved implementation
+
+Home is a refreshable daily feed, independent of Explore’s search/category/price/date. It requests window=today and limit=12 with the current phone zone and shared area/proximity; results include ongoing and upcoming occurrences ordered by start instant. Refresh captures a new request clock; the screen also reloads on entry and location/zone changes. Explore contains the full discovery controls and USD-only maximum-price input.
+
+SavedExperienceStore persists snapshots in private Android SharedPreferences on an IO dispatcher. The root composable loads saved state, serializes writes, and shares saved IDs and toggle callbacks across Home, Explore, Details, and Saved. A snapshot contains the experience ID, display text, and absolute occurrence start/end instants. Identity is series-based; saving twice toggles removal rather than creating duplicates. Stored instants are formatted in the current phone zone. Snapshots remain usable offline, but do not imply the listing is still active or the stored offer is current; the Saved screen communicates this limitation.
+
+Storage failures are visible and do not silently erase existing data. Unreadable storage disables mutation until it can be loaded successfully. This is implemented local functionality; the authenticated account-owned saved endpoints in the target design remain future work and are not implemented by this device store.
+
+Category choices are directly visible as scrollable chips. Loading, empty server data, and HTTP errors have distinct messages and retry actions. The category route is dependency-injected for integration testing and tolerates absent optional icon metadata. Tests use the checked-in schema and full seed; no running Aiven database is accessed during those tests. Device confirmation is still required for the Android build and persistence/lifecycle behavior.
