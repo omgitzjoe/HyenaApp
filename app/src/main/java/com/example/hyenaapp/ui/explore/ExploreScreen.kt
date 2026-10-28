@@ -3,28 +3,25 @@ package com.example.hyenaapp.ui.explore
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.data.repository.NearbyLocation
+import com.example.hyenaapp.data.repository.DiscoveryFilters
 import com.example.hyenaapp.domain.model.Experience
 import com.example.hyenaapp.ui.components.ExperienceCard
-import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
 import com.example.hyenaapp.ui.components.DiscoveryAreaPicker
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
@@ -37,21 +34,21 @@ fun ExploreScreen(
     radiusMiles: Int = 10,
     timeZone: String = java.time.ZoneId.systemDefault().id,
     locationControls: @Composable () -> Unit = {},
+    filters: DiscoveryFilters = DiscoveryFilters(),
+    filterControls: @Composable () -> Unit = {},
     onAreaChange: (String?) -> Unit = {},
     onExperienceClick: (String, String, String, String) -> Unit = { _, _, _, _ -> }
 ) {
-    var searchQuery by rememberSaveable { mutableStateOf("") }
     var experiences by remember {
         mutableStateOf<List<Experience>>(emptyList())
     }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
-    var selectedWindow by rememberSaveable { mutableStateOf("today") }
 
-    val query = searchQuery.trim()
+    val query = filters.query.trim()
 
-    LaunchedEffect(query, selectedWindow, selectedAreaId, nearby, radiusMiles, timeZone, reloadKey) {
+    LaunchedEffect(filters, selectedAreaId, nearby, radiusMiles, timeZone, reloadKey) {
         isLoading = true
         errorMessage = null
 
@@ -60,7 +57,7 @@ fun ExploreScreen(
                 delay(300)
             }
 
-            experiences = ExperienceRepository.getExperiences(query, selectedWindow, selectedAreaId, timeZone, nearby, radiusMiles)
+            experiences = ExperienceRepository.getExperiences(query, filters.window, selectedAreaId, timeZone, nearby, radiusMiles, filters)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -83,27 +80,12 @@ fun ExploreScreen(
             )
         }
 
-        item {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it.take(100) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Search experiences") },
-                singleLine = true
-            )
-        }
+        item { filterControls() }
 
         item { locationControls() }
 
         if (nearby == null) {
             item { DiscoveryAreaPicker(selectedAreaId = selectedAreaId, onAreaChange = onAreaChange) }
-        }
-
-        item {
-            DiscoveryWindowPicker(
-                selectedWindow = selectedWindow,
-                onWindowChange = { selectedWindow = it }
-            )
         }
 
         when {
@@ -129,9 +111,9 @@ fun ExploreScreen(
                 item {
                     Text(
                         text = if (query.isEmpty()) {
-                            "No experiences match this location and time window. Try All dates."
+                            "No experiences match these filters. Try Clear filters or All dates."
                         } else {
-                            "No experiences match your search, location, and time window."
+                            "No experiences match your search and filters. Try Clear filters."
                         }
                     )
                 }

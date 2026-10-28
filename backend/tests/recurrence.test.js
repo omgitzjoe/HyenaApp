@@ -79,7 +79,7 @@ test('one invalid zone does not break the feed', () => {
     const r=evaluateCandidates([{...base,id:'invalid',timeZone:'Not/AZone'},base],filters(),now,id=>warnings.push(id));
     assert.equal(r.count,1); assert.deepEqual(warnings,['invalid']);
 });
-test('query defaults and trimming',()=>assert.deepEqual(parseDiscoveryQuery({q:' music '}),{search:'music',window:'today',date:null,timeZone:null,proximity:null,limit:20,areaId:null,categoryId:null}));
+test('query defaults and trimming',()=>assert.deepEqual(parseDiscoveryQuery({q:' music '}),{search:'music',window:'today',date:null,timeZone:null,proximity:null,limit:20,areaId:null,categoryId:null,priceMode:"any",maxPrice:null,currency:null}));
 for (const [name,query] of Object.entries({
     'invalid window':{window:'year'}, 'window array':{window:['today']}, 'missing selected date':{window:'date'},
     'invalid calendar date':{window:'date',date:'2026-02-30'}, 'date without date window':{date:'2026-10-28'},
@@ -122,3 +122,17 @@ for (const query of [
     { latitude: '0', longitude: '0', areaId: '00000000-0000-0000-0000-000000000000' },
     { timeZone: 'Mars/Anywhere' }, { timeZone: ['UTC'] }, { timeZone: '+02:00' }
 ]) test(`rejects malformed location/time zone ${JSON.stringify(query)}`, () => assert.throws(() => parseDiscoveryQuery(query), DiscoveryQueryError));
+
+test('maximum price preserves decimal precision and requires a currency', () => {
+    const result = parseDiscoveryQuery({price:'max',maxPrice:'10.50',currency:'USD'});
+    assert.equal(result.maxPrice,'10.50'); assert.equal(result.currency,'USD'); assert.equal(result.priceMode,'max');
+    assert.equal(parseDiscoveryQuery({price:'max',maxPrice:'0',currency:'USD'}).maxPrice,'0');
+    assert.equal(parseDiscoveryQuery({price:'max',maxPrice:'99999999.99',currency:'CAD'}).maxPrice,'99999999.99');
+});
+for (const query of [
+    {price:'cheap'}, {price:['free']}, {price:'max'}, {price:'max',maxPrice:'10'},
+    {price:'max',maxPrice:'10',currency:'usd'}, {price:'max',maxPrice:'10',currency:'US'},
+    {price:'max',maxPrice:'10',currency:['USD']}, {price:'max',maxPrice:['10'],currency:'USD'},
+    {price:'free',maxPrice:'10'}, {currency:'USD'}, {maxPrice:'10'},
+    ...['-1','NaN','Infinity','1e3','0x10','10.001','100000000','', ' ', '.5','10.'].map(maxPrice=>({price:'max',maxPrice,currency:'USD'}))
+]) test(`rejects invalid price ${JSON.stringify(query)}`,()=>assert.throws(()=>parseDiscoveryQuery(query),DiscoveryQueryError));

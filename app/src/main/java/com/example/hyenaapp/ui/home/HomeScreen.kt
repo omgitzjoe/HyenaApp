@@ -14,17 +14,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.data.repository.NearbyLocation
+import com.example.hyenaapp.data.repository.DiscoveryFilters
 import com.example.hyenaapp.domain.model.Experience
 import com.example.hyenaapp.ui.components.ExperienceCard
-import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
 import com.example.hyenaapp.ui.components.DiscoveryAreaPicker
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.delay
 
 @Composable
 fun HomeScreen(
@@ -34,6 +34,8 @@ fun HomeScreen(
     radiusMiles: Int = 10,
     timeZone: String = java.time.ZoneId.systemDefault().id,
     locationControls: @Composable () -> Unit = {},
+    filters: DiscoveryFilters = DiscoveryFilters(),
+    filterControls: @Composable () -> Unit = {},
     onAreaChange: (String?) -> Unit = {},
     onExperienceClick: (String, String, String, String) -> Unit = { _, _, _, _ -> }
 ) {
@@ -43,14 +45,14 @@ fun HomeScreen(
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
-    var selectedWindow by rememberSaveable { mutableStateOf("today") }
 
-    LaunchedEffect(selectedWindow, selectedAreaId, nearby, radiusMiles, timeZone, reloadKey) {
+    LaunchedEffect(filters, selectedAreaId, nearby, radiusMiles, timeZone, reloadKey) {
         isLoading = true
         errorMessage = null
 
         try {
-            experiences = ExperienceRepository.getExperiences(window = selectedWindow, areaId = selectedAreaId, timeZone = timeZone, nearby = nearby, radiusMiles = radiusMiles)
+            if (filters.query.isNotBlank()) delay(300)
+            experiences = ExperienceRepository.getExperiences(query = filters.query.trim(), window = filters.window, areaId = selectedAreaId, timeZone = timeZone, nearby = nearby, radiusMiles = radiusMiles, filters = filters)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -80,17 +82,12 @@ fun HomeScreen(
             )
         }
 
+        item { filterControls() }
+
         item { locationControls() }
 
         if (nearby == null) {
             item { DiscoveryAreaPicker(selectedAreaId = selectedAreaId, onAreaChange = onAreaChange) }
-        }
-
-        item {
-            DiscoveryWindowPicker(
-                selectedWindow = selectedWindow,
-                onWindowChange = { selectedWindow = it }
-            )
         }
 
         when {
@@ -114,7 +111,7 @@ fun HomeScreen(
 
             experiences.isEmpty() -> {
                 item {
-                    Text(text = "No experiences match this location and time window. Try another window or All dates.")
+                    Text(text = "No experiences match these filters. Try Clear filters or All dates.")
                 }
             }
 

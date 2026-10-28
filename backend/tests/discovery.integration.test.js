@@ -34,6 +34,9 @@ before(async()=>{
     ids.valid=await addExperience('Zulu Dinner',{description:'Family evening',offer:'Free entry',categories:[ids.food,ids.music]});
     ids.weekly=await addExperience('Weekly Café',{kind:'WEEKLY',startDate:'2026-01-01',endDate:null,weekdays:[3,5],categories:[ids.music]});
     ids.percent=await addExperience('Save 50% _ Today');
+    await db.query('UPDATE experiences SET price_amount=$2, currency=$3 WHERE id=$1', [ids.valid, '0', 'USD']);
+    await db.query('UPDATE experiences SET price_amount=$2, currency=$3 WHERE id=$1', [ids.weekly, '10.50', 'USD']);
+    await db.query('UPDATE experiences SET price_amount=$2, currency=$3 WHERE id=$1', [ids.percent, '10.51', 'USD']);
     await addExperience('Inactive Experience',{active:false});
     await addExperience('Closed Venue Event',{businessId:ids.closedBusiness});
     await addExperience('Inactive Area Event',{businessId:ids.inactiveAreaBusiness});
@@ -135,4 +138,45 @@ test('HTTP rejects malformed proximity and time zone', async () => {
 test('HTTP viewer tonight differs from venue tonight', async () => {
     assert.equal((await get('?window=tonight&timeZone=UTC')).body.count, 3);
     assert.equal((await get('?window=tonight&timeZone=Asia%2FTokyo')).body.count, 0);
+});
+
+test('Free uses numeric zero and excludes unknown prices', async () => {
+    const r = await get('?window=all&price=free');
+    assert.equal(r.status,200); assert.deepEqual(r.body.items.map(x=>x.id),[ids.valid]);
+    // Old fixtures without numeric prices are retained by Any price.
+    assert.equal((await get('?window=all&price=any&limit=100')).body.count,29);
+});
+test('maximum price includes exact boundary and excludes higher amounts', async () => {
+    const r = await get('?price=max&maxPrice=10.50&currency=USD');
+    assert.equal(r.status,200); assert.equal(r.body.count,2);
+    assert.ok(r.body.items.some(x=>x.id===ids.weekly));
+    assert.ok(r.body.items.every(x=>x.id!==ids.percent));
+    assert.deepEqual((await get('?price=max&maxPrice=0&currency=USD')).body.items.map(x=>x.id),[ids.valid]);
+});
+test('maximum price never compares different currencies', async () => {
+    try {
+        await db.query('UPDATE experiences SET currency=$2 WHERE id=$1',[ids.percent,'EUR']);
+        assert.equal((await get('?price=max&maxPrice=100&currency=USD')).body.count,2);
+        assert.deepEqual((await get('?price=max&maxPrice=100&currency=EUR')).body.items.map(x=>x.id),[ids.percent]);
+    } finally { await db.query('UPDATE experiences SET currency=$2 WHERE id=$1',[ids.percent,'USD']); }
+});
+test('category, price, keyword, area and date combine before limit', async () => {
+    const q=new URLSearchParams({window:'date',date:'2026-10-28',timeZone:'America/Denver',areaId:ids.area,categoryId:ids.music,price:'max',maxPrice:'10.50',currency:'USD',q:'family',limit:'1'});
+    const r=await get('?'+q);assert.equal(r.status,200);assert.deepEqual(r.body.items.map(x=>x.id),[ids.valid]);
+    q.set('price','free');q.delete('maxPrice');q.delete('currency');
+    assert.deepEqual((await get('?'+q)).body.items.map(x=>x.id),[ids.valid]);
+    q.set('categoryId',ids.unused);assert.equal((await get('?'+q)).body.count,0);
+});
+test('price combines with proximity and changing filters restores results', async () => {
+    try {
+        await db.query('UPDATE businesses SET latitude=39.7392, longitude=-104.9903 WHERE id=$1',[ids.business]);
+        const r=await get('?latitude=39.7392&longitude=-104.9903&radiusMiles=10&price=free&categoryId='+ids.music);
+        assert.equal(r.body.count,1);assert.equal(r.body.items[0].id,ids.valid);
+        assert.equal((await get()).body.count,3);
+    } finally { await db.query('UPDATE businesses SET latitude=NULL, longitude=NULL WHERE id=$1',[ids.business]); }
+});
+test('malformed price requests return structured 400 responses', async () => {
+    for(const query of ['?price=cheap','?price=max&maxPrice=-1&currency=USD','?price=max&maxPrice=10','?price=free&maxPrice=0']){
+        const r=await get(query);assert.equal(r.status,400);assert.ok(r.body.error.code);
+    }
 });

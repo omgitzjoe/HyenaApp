@@ -34,10 +34,13 @@ async function discoverExperiences(pool, query, now = new Date(), logger = conso
                 SELECT 1 FROM experience_categories filter_category
                 WHERE filter_category.experience_id = e.id AND filter_category.category_id = $3::uuid
             ))
+            AND ($4::text = 'any'
+                OR ($4::text = 'free' AND e.price_amount = 0)
+                OR ($4::text = 'max' AND e.price_amount <= $5::numeric AND e.currency = $6::char(3)))
             AND (e.title ILIKE $1 OR e.description ILIKE $1 OR b.name ILIKE $1 OR e.price_label ILIKE $1
                 OR EXISTS (SELECT 1 FROM experience_categories ec JOIN categories c ON c.id = ec.category_id
                     WHERE ec.experience_id = e.id AND c.name ILIKE $1))
-    `, [pattern, filters.areaId, filters.categoryId]);
+    `, [pattern, filters.areaId, filters.categoryId, filters.priceMode, filters.maxPrice, filters.currency]);
     const rows = filters.proximity ? result.rows.filter(row => {
         if (row.latitude == null || row.longitude == null) return false;
         const radians = degrees => degrees * Math.PI / 180;

@@ -1,5 +1,5 @@
 # Hyena App Software Design Description
-**Version:** 0.4 — Working design
+**Version:** 0.5 — Working design
 
 **Date:** October 28, 2026
 
@@ -659,3 +659,13 @@ Near me requests a one-time foreground location fix with approximate or precise 
 The discovery API validates optional latitude/longitude/radiusMiles and viewer timeZone. Business coordinates determine great-circle proximity; missing business coordinates are excluded without substituting area centers. Proximity cannot be combined with areaId. Distance and recurrence are applied before limiting, with existing chronological ordering. Candidate evaluation remains in memory for the prototype.
 
 Schedule wall times resolve in the venue zone, but Today/Tonight/date boundaries follow the supplied viewer zone. Android sends the phone zone and converts all displayed dated occurrence timestamps into that zone, showing date changes. All dates supplies a representative dated occurrence rather than attempting to convert undated recurring wall times. Now uses the same instant regardless of viewer zone. Manual device validation covers permissions, disabled location, timeout, fallback, and phone-zone changes; local Android builds remain blocked by Gradle download access.
+
+### Implemented discovery filter controls
+
+Home and Explore share keyword, category, price, currency, and date-window state through HyenaApp; these non-location preferences survive activity recreation. Category choices come from `/api/v1/categories`, with loading/error/retry and removal handling. Both screens combine the selected filters with area or proximity and send them to the same discovery endpoint. Search is debounced on both screens.
+
+Price modes are Any price, Free, and Maximum price. Unknown numeric prices are included only under Any price. Free requires numeric zero; display labels alone are not authoritative. Maximum price is an inclusive PostgreSQL numeric comparison restricted to an explicitly selected currency, with no currency conversion. The API accepts nonnegative decimal amounts up to 99999999.99 with at most two fractional digits and rejects contradictory or malformed price parameters. The UI supports USD, CAD, EUR, and GBP and separates draft price input from the applied maximum.
+
+A calendar dialog selects one ISO date for window=date; its UTC calendar value is preserved without converting that calendar selection through the phone zone. The recurrence window then uses the viewer zone as designed. Cancel preserves the current filter. Clear filters resets search/category/price/window/location choices, restores Today and a 10-mile radius, and cancels an in-progress location request. Filter state is consistent between tabs; coordinates remain in memory only.
+
+Backend tests cover combinations and numeric/currency boundaries. Device verification remains required for the Compose controls, calendar, and lifecycle persistence because this environment cannot download Gradle.

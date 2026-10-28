@@ -15,11 +15,17 @@ object ExperienceRepository {
         areaId: String? = null,
         timeZone: String = ZoneId.systemDefault().id,
         nearby: NearbyLocation? = null,
-        radiusMiles: Int = 10
+        radiusMiles: Int = 10,
+        filters: DiscoveryFilters = DiscoveryFilters()
     ): List<Experience> {
         return ApiClient.api.getExperiences(
             query, window, if (nearby == null) areaId else null, timeZone,
-            nearby?.latitude, nearby?.longitude, if (nearby != null) radiusMiles else null
+            nearby?.latitude, nearby?.longitude, if (nearby != null) radiusMiles else null,
+            categoryId = filters.categoryId,
+            price = filters.priceMode,
+            maxPrice = filters.maxPrice.takeIf { filters.priceMode == "max" },
+            currency = filters.currency.takeIf { filters.priceMode == "max" },
+            date = filters.date.takeIf { window == "date" }
         ).items.map { dto ->
             val offerLabel = dto.offer?.takeIf { it.isNotBlank() }
                 ?: dto.priceAmount?.let { amount ->

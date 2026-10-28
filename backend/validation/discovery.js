@@ -60,9 +60,27 @@ function parseDiscoveryQuery(query) {
         if (query.areaId !== undefined) throw new DiscoveryQueryError("INVALID_PROXIMITY", "Choose proximity or area filtering, not both.");
         proximity = { latitude: Number(query.latitude), longitude: Number(query.longitude), radiusMiles: Number(query.radiusMiles ?? 10) };
     }
+    const priceMode = query.price ?? "any";
+    if (typeof priceMode !== "string" || !["any", "free", "max"].includes(priceMode)) {
+        throw new DiscoveryQueryError("INVALID_PRICE", "Choose any, free, or max for price.");
+    }
+    let maxPrice = null;
+    let currency = null;
+    if (priceMode === "max") {
+        if (typeof query.maxPrice !== "string" || !/^\d{1,8}(?:\.\d{1,2})?$/.test(query.maxPrice)) {
+            throw new DiscoveryQueryError("INVALID_PRICE", "Maximum price must be from 0 to 99999999.99 with at most two decimal places.");
+        }
+        if (typeof query.currency !== "string" || !/^[A-Z]{3}$/.test(query.currency)) {
+            throw new DiscoveryQueryError("INVALID_CURRENCY", "Maximum price requires a three-letter uppercase currency code.");
+        }
+        maxPrice = query.maxPrice;
+        currency = query.currency;
+    } else if (query.maxPrice !== undefined || query.currency !== undefined) {
+        throw new DiscoveryQueryError("INVALID_PRICE", "maxPrice and currency require price=max.");
+    }
     return {
         search: search.trim(), window, date, timeZone, proximity, limit: Number(rawLimit),
-        areaId: query.areaId ?? null, categoryId: query.categoryId ?? null
+        areaId: query.areaId ?? null, categoryId: query.categoryId ?? null, priceMode, maxPrice, currency
     };
 }
 

@@ -111,7 +111,7 @@ http://localhost:4010/api/v1/experiences?window=date&date=2026-11-01
 http://localhost:4010/api/v1/experiences?window=all&limit=100
 ```
 
-Selected-date searches can include historical occurrences, marked `EXPIRED`. All dates explicitly browses active listings regardless of schedule expiry and returns a representative dated occurrence when resolvable (the next unexpired weekly occurrence, otherwise a historical/first occurrence). It is useful when testing old seed fixtures. The Android Home and Explore screens provide Today, Tonight, Now, and All dates chips; selected-date and category parameters remain API-only controls. Area selection is available as a fallback to Near me.
+Selected-date searches can include historical occurrences, marked `EXPIRED`. All dates explicitly browses active listings regardless of schedule expiry and returns a representative dated occurrence when resolvable (the next unexpired weekly occurrence, otherwise a historical/first occurrence). It is useful when testing old seed fixtures. The Android Home and Explore screens provide Today, Tonight, Now, and All dates chips; Home and Explore also provide shared category, price, and selected-date controls. Area selection is available as a fallback to Near me.
 
 Time-filtered items retain the existing flat listing fields and add `nextOccurrence` containing `startsAt`, `endsAt`, `timeZone`, `localDate`, and `status` (`UPCOMING`, `ONGOING`, or `EXPIRED`). UTC timestamps are formatted in the phone’s zone on Android, including the end date for overnight events. A recurring listing appears once, with its earliest matching occurrence.
 
@@ -217,3 +217,29 @@ Proximity and `areaId` are mutually exclusive. Search, category, distance, activ
 Schedule rules and DST resolution remain in the venue zone. Only the filter boundaries use the viewer zone; the service translates those boundaries back to venue dates before checking recurrence and overnight starts. Now remains invariant across zones. Android formats occurrence instants, dates, and overnight end dates in the phone zone, labeled with its zone ID. All dates uses a representative dated occurrence, including historical ones; it does not convert a recurring wall time without a date.
 
 After pulling: restart `npm start`, sync Gradle, then run on the phone. Test granting approximate/precise permission, denying permission, disabling location, choosing fallback areas, changing radii, switching tabs, and changing the phone time zone. Near me can legitimately be empty because the seed venues are fictional coordinates. For emulator tests, set a position near a seeded venue (Rexburg: 43.8231, −111.7924). No SQL migration or reseeding is required.
+
+### Category, price, and date filters
+
+Home and Explore share search, category, applied price/currency, and date-window selections across tabs and activity recreation. Categories load from `/api/v1/categories` with loading/error/retry states. Selecting a date uses a calendar dialog; Cancel leaves the current window unchanged. Its UTC calendar representation is converted directly to an ISO date, avoiding a one-day shift on phones west of UTC. The API interprets that date in the supplied viewer time zone. Past dates may intentionally return historical occurrences.
+
+Price parameters combine with existing search/category/area/proximity/time filters:
+
+| Parameter | Values and rules |
+| --- | --- |
+| `categoryId` | Existing category UUID; omitted for All categories. |
+| `price` | `any` (default), `free`, or `max`. |
+| `maxPrice` | Required with `price=max`; decimal 0–99999999.99 with up to two decimal places. Inclusive upper bound. |
+| `currency` | Required with `price=max`; three uppercase letters. No conversion between currencies. |
+
+`free` requires numeric `price_amount = 0`, regardless of currency. Labels such as “Free entry” without a numeric zero are not inferred to be free. `any` includes listings with unknown prices; `free`/`max` exclude them. Maximum price compares only listings in the specified currency using PostgreSQL numeric arithmetic, before result limiting. Supplying maxPrice/currency outside max mode, malformed amounts, or an invalid mode returns a structured 400 response.
+
+The app offers USD/CAD/EUR/GBP, defaults to USD and an initial maximum of 25.00 when Maximum price is selected, and applies edited amounts only after **Apply maximum**. Invalid drafts stay on screen with a validation message and do not replace the applied filter. **Clear filters** restores empty search, All categories, Any price, Today, All areas, and a 10-mile radius; it also clears the captured location and cancels an in-progress location request.
+
+Example API requests:
+
+```text
+/api/v1/experiences?price=free&window=tonight&timeZone=America%2FDenver
+/api/v1/experiences?price=max&maxPrice=20.00&currency=USD&window=date&date=2026-10-28&timeZone=America%2FDenver
+```
+
+Validation: `npm test` covers price boundaries, zero/unknown prices, currencies, invalid parameters, and combined category/search/location/date/price filters. After pulling, restart the API, sync Gradle, and test on a device: select a category and Free, then Maximum price; enter invalid text and verify it does not apply; choose and cancel a date; switch tabs; Clear filters; and retry categories while the API is unavailable. Android builds/tests still require the local Android Studio environment because Gradle downloads are blocked here.

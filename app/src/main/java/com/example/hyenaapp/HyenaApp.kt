@@ -8,6 +8,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
 import android.content.BroadcastReceiver
@@ -20,6 +21,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.time.ZoneId
 import com.example.hyenaapp.data.repository.NearbyLocation
+import com.example.hyenaapp.data.repository.DiscoveryFilters
+import com.example.hyenaapp.ui.components.DiscoveryFiltersPanel
 import com.example.hyenaapp.ui.components.NearbyControls
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,12 +41,40 @@ fun HyenaApp() {
     var nearby by remember { mutableStateOf<NearbyLocation?>(null) }
     var radiusMiles by rememberSaveable { mutableStateOf(10) }
     var timeZone by remember { mutableStateOf(ZoneId.systemDefault().id) }
+    var resetKey by remember { mutableStateOf(0) }
     val locationControls: @Composable () -> Unit = {
-        NearbyControls(nearby, radiusMiles, { nearby = it }, { radiusMiles = it })
+        key(resetKey) { NearbyControls(nearby, radiusMiles, { nearby = it }, { radiusMiles = it }) }
         Text("Times shown in $timeZone")
     }
 
     var selectedAreaId by rememberSaveable { mutableStateOf<String?>(null) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var categoryId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedWindow by rememberSaveable { mutableStateOf("today") }
+    var selectedDate by rememberSaveable { mutableStateOf<String?>(null) }
+    var priceMode by rememberSaveable { mutableStateOf("any") }
+    var maxPrice by rememberSaveable { mutableStateOf("25.00") }
+    var currency by rememberSaveable { mutableStateOf("USD") }
+    val filters = DiscoveryFilters(searchQuery, categoryId, selectedWindow, selectedDate, priceMode, maxPrice, currency)
+    val updateFilters: (DiscoveryFilters) -> Unit = {
+        searchQuery = it.query
+        categoryId = it.categoryId
+        selectedWindow = it.window
+        selectedDate = it.date
+        priceMode = it.priceMode
+        maxPrice = it.maxPrice
+        currency = it.currency
+    }
+    val filterControls: @Composable () -> Unit = {
+        DiscoveryFiltersPanel(filters, timeZone, updateFilters, onClear = {
+            resetKey++
+            updateFilters(DiscoveryFilters())
+            selectedAreaId = null
+            nearby = null
+            radiusMiles = 10
+        })
+    }
+
 
     var selectedTab by rememberSaveable { mutableStateOf("Home") }
     var showingDetails by rememberSaveable { mutableStateOf(false) }
@@ -117,6 +148,8 @@ fun HyenaApp() {
                     radiusMiles = radiusMiles,
                     timeZone = timeZone,
                     locationControls = locationControls,
+                    filters = filters,
+                    filterControls = filterControls,
                     onAreaChange = { selectedAreaId = it },
                     onExperienceClick = { title, business, schedule, offer ->
                         detailTitle = title
@@ -134,6 +167,8 @@ fun HyenaApp() {
                     radiusMiles = radiusMiles,
                     timeZone = timeZone,
                     locationControls = locationControls,
+                    filters = filters,
+                    filterControls = filterControls,
                     onAreaChange = { selectedAreaId = it },
                     onExperienceClick = { title, business, schedule, offer ->
                         detailTitle = title
