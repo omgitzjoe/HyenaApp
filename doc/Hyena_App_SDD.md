@@ -1,5 +1,5 @@
 # Hyena App Software Design Description
-**Version:** 0.7 — Working design
+**Version:** 0.8 — Working design
 
 **Date:** October 28, 2026
 
@@ -77,7 +77,7 @@ Library versions must be chosen against the existing Gradle configuration and lo
 
 ### 2.3 Release boundary
 
-Home, Explore, Details, area selection, optional account access, and Saved are the core screens. Accounts are optional to the visitor but required by the SRS for account-owned saves. Map, Surprise Me, preferences-based recommendations, and Build My Night are optional extensions. Foreground location permission is optional for Near me; manual area discovery remains available. Public listing submission UI is not implemented.
+Home, Explore, Details, area selection, optional account access, and Saved are the core screens. Accounts are optional to the visitor but required by the SRS for account-owned saves. Map, Surprise Me, preferences-based recommendations, and Build My Night are optional extensions. Foreground location permission is optional for Near me; manual area discovery remains available. Public listing submission UI is implemented on feature/event-submissions with pending review; it is not yet deployed to master.
 
 ## 3 Android client design
 
@@ -687,3 +687,15 @@ The fictional catalog preserves its existing IDs: 225 experiences, 50 businesses
 Render deployment is prepared as a single Node web service connected to the existing Aiven PostgreSQL service. The project owner deployed the service at https://hyena-api-np3j.onrender.com/; its database health, categories, and catalog endpoints have been verified over HTTPS. The Blueprint uses backend as root, npm ci --omit=dev, npm start, and /health/db readiness. Aiven CA contents can be supplied privately as DB_SSL_CA instead of a local file path; certificate verification remains enabled. The server binds to 0.0.0.0 using the assigned PORT and supports graceful SIGTERM shutdown.
 
 The Android base URL is supplied through the HYENA_API_BASE_URL Gradle property and generated BuildConfig; https://hyena-api-np3j.onrender.com/ is the default, with a Gradle property override for local development. Deployment acceptance requires rebuilding with the actual HTTPS URL, stopping local Node, and verifying discovery from mobile data. Render Free has cold starts, so request timeouts accommodate a longer initial response. Account synchronization and paid always-on hosting remain separate future decisions.
+
+### Pending event submissions and administrator dashboard (feature/event-submissions)
+
+This feature branch adds a one-time event submission screen accessed from + Event on Home and Explore. The form sends venue-local schedule rules, category references, USD price or unknown price, and either an active business reference or a proposed venue/address/area. Client request UUIDs make unchanged retries idempotent. A success receipt explicitly states that publishing requires review. These branch changes are not deployed to master automatically.
+
+Migration 002 adds event_submissions and admin_sessions. Pending payloads are kept in a separate JSONB record rather than inactive public experiences. Checks constrain review status, ownership, notes, and published references; indexes cover status/date review queues and session expiry. The review service obtains a row lock and uses a single database transaction to match/create a venue, call the shared experience publisher, and record approval. Repeated approval returns the same published ID; opposite or subsequent conflicting decisions return 409. Rejections require a reason and publish nothing. References and expiration are rechecked at approval.
+
+The Node-served /admin/ dashboard implements username/password sign-in, status queues with keyset pagination, private details, new-venue matching and coordinates, approval and rejection. One administrator identity is configured through private environment variables; scrypt hashes replace plaintext password configuration. Session tokens are random, stored only as SHA-256 digests in PostgreSQL, and delivered in HttpOnly SameSite=Strict cookies (Secure in production). CSRF tokens and exact Origin checks protect mutating JSON requests. Password rotation invalidates sessions, logout revokes them, and unconfigured administration fails closed. No curator API key is exposed to the browser. Public and login endpoints have per-process request throttling for the single-instance prototype.
+
+The public API adds GET /api/v1/businesses and POST /api/v1/submissions. Existing public discovery has no access to pending/rejected payloads; submitter accounts, public status retrieval, notifications, uploads, weekly submission, editing and account-owned history are not in this first version. Full setup and local test instructions are in Event_Submissions_Testing.md. Production rollout requires applying migration 002, setting private admin configuration, and intentionally merging/deploying the feature after tests.
+
+Automated HTTP/SQL tests cover approval/rejection, retry safety, reference/expiration changes, rollback, existing curator behavior, session/CSRF/origin controls, keyset pagination and rate limiting. PostgreSQL-compatible tests use a serialized PGlite pool adapter; real multi-connection load tests remain future work. Android DTO contract tests are included but the Android build and visual browser flow remain unverified here due environment limitations.

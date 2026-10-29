@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hyena · Submission review</title><link rel="stylesheet" href="/admin/style.css"><script src="/admin/app.js" defer></script></head>
+<body>
+<header class="topbar"><a class="brand" href="/admin/"><span class="mark">H</span> HYENA <span class="admin-label">ADMINISTRATION</span></a><div id="account" hidden><span id="username"></span><button id="logout" class="quiet">Sign out</button></div></header>
+<main>
+<section id="login-view" class="login-card"><span class="eyebrow">CURATOR ACCESS</span><h1>A little review.<br>A better local experience.</h1><p>Review community submissions before they go public.</p><form id="login-form"><label>Administrator username<input id="login-username" autocomplete="username" maxlength="100" required></label><label>Password<input id="login-password" type="password" autocomplete="current-password" maxlength="256" required></label><button class="primary" id="login-button">Sign in</button></form><p class="muted">Administrator access is configured on the server. No curator API key is used in this browser.</p></section>
+<div id="notice" role="status" aria-live="polite"></div>
+<section id="review-view" hidden>
+<div class="page-heading"><div><span class="eyebrow">COMMUNITY → DISCOVERY</span><h1>Submission review</h1><p>Check the details. Keep the good stuff coming.</p></div><button id="refresh">Refresh queue</button></div>
+<nav class="tabs" aria-label="Submission status"><button data-status="PENDING" class="active">Pending</button><button data-status="APPROVED">Approved</button><button data-status="REJECTED">Rejected</button></nav>
+<div class="workspace"><aside class="queue-panel"><div class="queue-heading"><h2 id="queue-heading">Pending submissions</h2><span id="queue-count"></span></div><div id="queue" aria-live="polite"></div><button id="more" hidden>Load more</button></aside><article class="detail-panel" id="detail"><div class="empty-state"><span class="empty-mark">↗</span><h2>Pick a submission</h2><p>The event, venue, and schedule will appear here.</p></div></article></div>
+</section>
+</main><footer>Hyena review desk · Events stay private until approved.</footer>
+</body></html>

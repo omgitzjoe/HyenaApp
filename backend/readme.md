@@ -269,3 +269,15 @@ The root **render.yaml** prepares one free Node service using the existing Aiven
 Android accepts the public HYENA_API_BASE_URL Gradle property, ending in a slash, with https://hyena-api-np3j.onrender.com/ as the default; set the property to a LAN URL only for local development. The HTTP client allows a longer cold-start response. Neither database credentials nor the curator key are compiled into Android. The final acceptance check is to stop local Node and use the rebuilt app on mobile data against the hosted HTTPS service.
 
 The Android app defaults to the hosted API at https://hyena-api-np3j.onrender.com/. Rebuild/reinstall after pulling this configuration change. A HYENA_API_BASE_URL Gradle property overrides the default; remove an old LAN override to use the hosted endpoint.
+
+### Event submission and administrator review (feature branch)
+
+The feature/event-submissions branch adds a one-time event form, public pending-submission API, venue search, and a private /admin/ dashboard. These changes are not deployed to the current master service automatically. See **../doc/Event_Submissions_Testing.md** for migration 002, private administrator configuration, local Android URL, acceptance steps, API examples, and production rollout order.
+
+Apply db/migrations/002_event_submissions.sql before testing submissions. It creates separate pending-review and hashed-session storage; existing published data is unchanged. Run `node scripts/create-admin-password.js` to generate the private ADMIN_PASSWORD_HASH and set ADMIN_USERNAME in the ignored backend/.env. User-facing account sign-in is still not implemented; this credential is only for the review dashboard.
+
+Pending/rejected submissions are excluded from discovery because they never enter experiences. Approval uses the same transaction-owned publisher as the curator API, revalidates active references and the event end time, locks the submission row, and publishes exactly once. A new venue can be created or matched to an existing one. The existing curator bearer key never enters dashboard JavaScript or Android. Admin mutations require session, CSRF, same Origin and JSON; production requires HTTPS. Password rotation and logout invalidate sessions.
+
+Public requests have a retry-safe client UUID and return only a receipt. The Android form reuses that ID when retrying unchanged content after a network failure. Editing starts a new request. Anonymous submissions have process-local rate limiting for this prototype; account-owned submission history, notifications, weekly events, uploads, and resubmission editing remain future work.
+
+Backend verification includes actual migrations and publication/rollback, duplicate requests/approvals, proposed venue matching, authentication/session security, pagination, throttling, and the existing curator path. Android serialization contract tests were added; Android builds and browser visual interaction checks remain pending because the local verification environments could not initialize/download Gradle.
