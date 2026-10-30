@@ -1,5 +1,5 @@
 const express = require("express");
-const { randomUUID } = require("node:crypto");
+const { publishExperience, ReviewError } = require("../services/publishExperience");
 const pool = require("../db");
 const {
     createExperienceSchema,
@@ -33,158 +33,23 @@ router.post("/experiences", async (req, res) => {
         });
     }
 
-    const data = validation.data;
-    const experienceId = randomUUID();
-    const scheduleId = randomUUID();
-
     let client;
-    let transactionStarted = false;
+    let started = false;
     let releaseError;
-
     try {
         client = await pool.connect();
-        await client.query("BEGIN");
-        transactionStarted = true;
-
-        const business = await client.query(`
-            SELECT b.id
-            FROM businesses b
-            JOIN discovery_areas a ON a.id = b.area_id
-            WHERE b.id = $1
-                AND b.is_active = TRUE
-                AND a.is_active = TRUE
-            FOR SHARE OF b, a
-        `, [data.businessId]);
-
-        if (business.rows.length === 0) {
-            await client.query("ROLLBACK");
-            transactionStarted = false;
-
-            return res.status(400).json({
-                error: {
-                    code: "INVALID_BUSINESS",
-                    message: "Choose an existing active business in an active area."
-                }
-            });
-        }
-
-        const categories = await client.query(`
-            SELECT id
-            FROM categories
-            WHERE id = ANY($1::uuid[])
-            FOR KEY SHARE
-        `, [data.categoryIds]);
-
-        if (categories.rows.length !== data.categoryIds.length) {
-            await client.query("ROLLBACK");
-            transactionStarted = false;
-
-            return res.status(400).json({
-                error: {
-                    code: "INVALID_CATEGORIES",
-                    message: "One or more categories do not exist."
-                }
-            });
-        }
-
-        await client.query(`
-            INSERT INTO experiences (
-                id, business_id, title, description, type,
-                price_amount, currency, price_label, requirements,
-                image_url, source_url, is_active
-            )
-            VALUES (
-                $1, $2, $3, $4, $5,
-                $6, $7, $8, $9,
-                $10, $11, TRUE
-            )
-        `, [
-            experienceId,
-            data.businessId,
-            data.title,
-            data.description,
-            data.type,
-            data.priceAmount,
-            data.currency,
-            data.offer,
-            data.requirements,
-            data.imageUrl,
-            data.sourceUrl
-        ]);
-
-        await client.query(`
-            INSERT INTO experience_categories (
-                experience_id, category_id
-            )
-            SELECT $1::uuid, unnest($2::uuid[])
-        `, [experienceId, data.categoryIds]);
-
-        const schedule = data.schedule;
-
-        await client.query(`
-            INSERT INTO experience_schedules (
-                id, experience_id, kind, start_date, end_date,
-                start_time, end_time, ends_next_day, time_zone
-            )
-            VALUES (
-                $1, $2, $3, $4, $5,
-                $6, $7, $8, $9
-            )
-        `, [
-            scheduleId,
-            experienceId,
-            schedule.kind,
-            schedule.startDate,
-            schedule.endDate,
-            schedule.startTime,
-            schedule.endTime,
-            schedule.endsNextDay,
-            schedule.timeZone
-        ]);
-
-        if (schedule.weekdays.length > 0) {
-            await client.query(`
-                INSERT INTO experience_schedule_days (
-                    schedule_id, iso_weekday
-                )
-                SELECT $1::uuid, unnest($2::smallint[])
-            `, [scheduleId, schedule.weekdays]);
-        }
-
-        await client.query("COMMIT");
-        transactionStarted = false;
-
-        res.location(`/api/v1/experiences/${experienceId}`)
-            .status(201)
-            .json({
-                item: {
-                    id: experienceId,
-                    title: data.title
-                }
-            });
+        await client.query("BEGIN"); started = true;
+        const item = await publishExperience(client, validation.data);
+        await client.query("COMMIT"); started = false;
+        res.location(`/api/v1/experiences/${item.id}`).status(201).json({ item });
     } catch (error) {
-        if (client && transactionStarted) {
-            try {
-                await client.query("ROLLBACK");
-            } catch (rollbackError) {
-                releaseError = rollbackError;
-                console.error("Rollback failed:", rollbackError.message);
-            }
+        if (client && started) {
+            try { await client.query("ROLLBACK"); } catch (rollbackError) { releaseError = rollbackError; }
         }
-
+        if (error instanceof ReviewError) return res.status(error.status).json({ error: { code: error.code, message: error.message } });
         console.error("Failed to create experience:", error.message);
-
-        res.status(500).json({
-            error: {
-                code: "EXPERIENCE_CREATE_FAILED",
-                message: "Unable to create experience."
-            }
-        });
-    } finally {
-        if (client) {
-            client.release(releaseError);
-        }
-    }
+        res.status(500).json({ error: { code: "EXPERIENCE_CREATE_FAILED", message: "Unable to create experience." } });
+    } finally { if (client) client.release(releaseError); }
 });
 router.patch("/experiences/:id/deactivate", async (req, res) => {
     const { id } = req.params;

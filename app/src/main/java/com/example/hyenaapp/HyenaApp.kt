@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -42,6 +43,7 @@ import com.example.hyenaapp.ui.components.NearbyControls
 import com.example.hyenaapp.ui.details.ExperienceDetailsScreen
 import com.example.hyenaapp.ui.explore.ExploreScreen
 import com.example.hyenaapp.ui.home.HomeScreen
+import com.example.hyenaapp.ui.submit.SubmitEventScreen
 import com.example.hyenaapp.ui.saved.SavedScreen
 import java.time.ZoneId
 import kotlin.coroutines.cancellation.CancellationException
@@ -126,6 +128,7 @@ fun HyenaApp() {
     }
 
     var selectedTab by rememberSaveable { mutableStateOf("Home") }
+    var showingSubmission by rememberSaveable { mutableStateOf(false) }
     var showingDetails by rememberSaveable { mutableStateOf(false) }
     var detailId by rememberSaveable { mutableStateOf("") }
     var detailTitle by rememberSaveable { mutableStateOf("") }
@@ -160,10 +163,12 @@ fun HyenaApp() {
         ContextCompat.registerReceiver(context, receiver, IntentFilter(Intent.ACTION_TIMEZONE_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer); context.unregisterReceiver(receiver) }
     }
-    BackHandler(enabled = showingDetails) { showingDetails = false }
+    BackHandler(enabled = showingDetails || showingSubmission) {
+        if (showingSubmission) showingSubmission = false else showingDetails = false
+    }
 
     Scaffold(bottomBar = {
-        if (!showingDetails) {
+        if (!showingDetails && !showingSubmission) {
             NavigationBar {
                 listOf("Home", "Explore", "Saved").forEach { tab ->
                     NavigationBarItem(
@@ -173,6 +178,10 @@ fun HyenaApp() {
                 }
             }
         }
+    }, floatingActionButton = {
+        if (!showingDetails && !showingSubmission && selectedTab != "Saved") {
+            FloatingActionButton(onClick = { showingSubmission = true }) { Text("+ Event") }
+        }
     }) { innerPadding ->
         Column(Modifier.padding(innerPadding).fillMaxSize()) {
             savedError?.let { message ->
@@ -180,7 +189,9 @@ fun HyenaApp() {
                 TextButton(enabled = !saving && !savesLoading, onClick = { savedReloadKey++ }) { Text("Retry saved storage") }
             }
             Box(Modifier.weight(1f)) {
-                if (showingDetails) {
+                if (showingSubmission) {
+                    SubmitEventScreen(initialAreaId = selectedAreaId, onDone = { showingSubmission = false })
+                } else if (showingDetails) {
                     val experience = Experience(detailId, detailTitle, detailBusiness, detailSchedule, detailOffer, detailStart, detailEnd)
                     ExperienceDetailsScreen(
                         title = detailTitle, businessName = detailBusiness,

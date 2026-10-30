@@ -1,5 +1,7 @@
 package com.example.hyenaapp.data.remote
 
+import retrofit2.http.Body
+import retrofit2.http.POST
 import retrofit2.http.GET
 import retrofit2.http.Query
 
@@ -20,6 +22,12 @@ interface HyenaApi {
         @Query("date") date: String? = null,
         @Query("limit") limit: Int = 20
     ): ExperienceResponse
+
+    @GET("api/v1/businesses")
+    suspend fun getBusinesses(@Query("areaId") areaId: String, @Query("q") query: String = ""): BusinessResponse
+
+    @POST("api/v1/submissions")
+    suspend fun submitEvent(@Body body: EventSubmissionRequest): SubmissionResponse
 
     @GET("api/v1/categories")
     suspend fun getCategories(): CategoryResponse
