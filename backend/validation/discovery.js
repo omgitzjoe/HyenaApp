@@ -66,6 +66,7 @@ function parseDiscoveryQuery(query) {
         if (query.areaId !== undefined) throw new DiscoveryQueryError("INVALID_PROXIMITY", "Choose proximity or area filtering, not both.");
         proximity = { latitude: Number(query.latitude), longitude: Number(query.longitude), radiusMiles: Number(query.radiusMiles ?? 10) };
     }
+    if (timeZone === null && proximity) timeZone = require("../services/venueLocation").venueTimeZone(proximity);
     const priceMode = query.price ?? "any";
     if (typeof priceMode !== "string" || !["any", "free", "max"].includes(priceMode)) {
         throw new DiscoveryQueryError("INVALID_PRICE", "Choose any, free, or max for price.");

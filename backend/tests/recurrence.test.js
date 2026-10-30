@@ -136,3 +136,9 @@ for (const query of [
     {price:'free',maxPrice:'10'}, {currency:'USD'}, {maxPrice:'10'},
     ...['-1','NaN','Infinity','1e3','0x10','10.001','100000000','', ' ', '.5','10.'].map(maxPrice=>({price:'max',maxPrice,currency:'USD'}))
 ]) test(`rejects invalid price ${JSON.stringify(query)}`,()=>assert.throws(()=>parseDiscoveryQuery(query),DiscoveryQueryError));
+
+test('a location-only API request derives viewer day boundaries from the supplied coordinates',()=>{
+    assert.equal(parseDiscoveryQuery({latitude:'40.7128',longitude:'-74.006'}).timeZone,'America/New_York');
+    assert.equal(parseDiscoveryQuery({latitude:'43.8231',longitude:'-111.7924'}).timeZone,'America/Boise');
+    assert.equal(parseDiscoveryQuery({latitude:'40.7128',longitude:'-74.006',timeZone:'UTC'}).timeZone,'UTC');
+});

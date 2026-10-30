@@ -36,7 +36,7 @@ The checked-in sample_data.sql and refresh_mock_catalog.sql use the new schema, 
 
 ## API changes
 
-- GET /api/v1/experiences requires latitude and longitude; radiusMiles defaults to 10. Responses include distanceMiles and venue coordinates. Missing coordinates return LOCATION_REQUIRED; areaId returns AREAS_REMOVED.
+- GET /api/v1/experiences requires latitude and longitude; radiusMiles defaults to 10. Responses include distanceMiles and venue coordinates. When a caller omits timeZone, viewer day boundaries are derived from its coordinates. Missing coordinates return LOCATION_REQUIRED; areaId returns AREAS_REMOVED.
 - categoryIds accepts a comma-separated set of up to 20 distinct category UUIDs. The former singular categoryId remains supported for older callers, but cannot be combined with categoryIds.
 - GET /api/v1/businesses accepts q and optional latitude/longitude together. With coordinates it sorts venues by distance. Coordinate-free access supports private dashboard matching.
 - GET /api/v1/areas returns 410 with a migration message.
