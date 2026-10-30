@@ -1,6 +1,6 @@
 # Event submissions and administrator review
 
-This feature is on **feature/event-submissions**. It is not merged into master, deployed to the production Render service, or applied to Aiven automatically. The existing live discovery service remains unchanged.
+This feature uses the existing Render backend and Aiven database. `npm start` applies the additive submission migration before starting the API. Administrator sign-in requires private Render environment settings.
 
 ## What is implemented
 
@@ -18,16 +18,19 @@ From the project root in PowerShell:
 
 ```powershell
 git fetch origin
-git switch feature/event-submissions
+git switch master
+git pull --ff-only
 cd backend
 npm ci
 ```
 
-Do not merge into master until you have tested the form and dashboard. Render currently deploys master, so pushing this branch does not deploy the feature.
+Render deploys master. The existing HTTPS base URL serves discovery, submissions, and the dashboard.
 
 ## 2. Apply the additive migration
 
-In DBeaver, open **backend/db/migrations/002_event_submissions.sql** on the intended database. Clear any text selection and execute the entire script (Alt+X). It creates event_submissions and admin_sessions plus indexes; it does not modify existing experiences, users, or saved data. It is safe to rerun.
+Normally no DBeaver step is needed: `npm start` applies migration 002 automatically using the configured database connection, before the HTTP server opens. Startup stops if migration fails. Concurrent starts serialize with a PostgreSQL advisory lock. Existing catalog data is preserved.
+
+For manual execution instead, in DBeaver open **backend/db/migrations/002_event_submissions.sql** on the intended database. Clear any text selection and execute the entire script (Alt+X). It creates event_submissions and admin_sessions plus indexes; it does not modify existing experiences, users, or saved data. It is safe to rerun.
 
 For local tests against a separate development database, apply the original initial_schema.sql first, then the sample fixtures if wanted, then migration 002. Do not recreate existing tables on your working Aiven database.
 
@@ -66,7 +69,9 @@ Visit **http://localhost:4010/admin/** and sign in. Without the optional admin c
 
 ## 4. Connect the test Android build to this backend
 
-The app normally defaults to the deployed master API, which does not yet contain these endpoints. For this feature test, set HYENA_API_BASE_URL in your local Gradle properties to the computer's actual LAN address, with a trailing slash:
+For hosted testing, remove any old LAN override or set `HYENA_API_BASE_URL=https://hyena-api-np3j.onrender.com/`, then rebuild/reinstall the app. No local Node process is needed.
+
+For optional local development only, set HYENA_API_BASE_URL to the computer's actual LAN address, with a trailing slash:
 
 ```properties
 HYENA_API_BASE_URL=http://YOUR-PC-LAN-IP:4010/
@@ -141,7 +146,7 @@ For a proposed venue, replace venue with `{ "proposal": { "areaId": "AREA-UUID",
 
 ## Later production rollout
 
-After testing: apply migration 002 to the deployed Aiven database, configure ADMIN_USERNAME and ADMIN_PASSWORD_HASH privately in Render, merge the feature into master, and let Render redeploy. Never automatically publish pending submissions as a deployment step. Remove the LAN Gradle override and rebuild Android against the hosted HTTPS API. Verify /admin/ sign-in and one controlled submission/review before sharing the form.
+The existing Render service deploys master and runs migration 002 on startup. Configure ADMIN_USERNAME and ADMIN_PASSWORD_HASH privately in Render and redeploy to enable sign-in. Never automatically publish pending submissions as a deployment step. Remove the LAN Gradle override and rebuild Android against the hosted HTTPS API. Verify /admin/ sign-in and one controlled submission/review before sharing the form.
 
 No production database, Render credentials, or live submissions were touched while building this feature.
 

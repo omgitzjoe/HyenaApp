@@ -69,3 +69,11 @@ Stop the local Node process, switch the phone off Wi-Fi onto mobile data, and te
 - https://render.com/docs/node-version
 - https://render.com/docs/configure-environment-variables
 - https://render.com/docs/free
+
+## Event submissions on the existing service
+
+The start command remains `npm start`. It runs the additive migration 002 against the configured Aiven database before opening the API; no DBeaver connection or seed refresh is required. The database user must be allowed to create tables/indexes. A migration failure stops deployment instead of serving partially initialized submission routes.
+
+Run `node scripts/create-admin-password.js` locally in backend. Keep the password private. In the existing Render service Environment page add `ADMIN_USERNAME` and `ADMIN_PASSWORD_HASH` (the full generated scrypt hash), then save/redeploy. These optional settings are deliberately not added as required Blueprint inputs, so existing discovery can start while administrator setup is pending. Sign in at https://hyena-api-np3j.onrender.com/admin/ with the username and original password. A 503 ADMIN_NOT_CONFIGURED means the private settings still need to be supplied.
+
+Rebuild Android from master using the existing HTTPS URL. Submit an event, verify it is pending and absent from discovery, approve in the dashboard, then find it in Explore. Repeat with a rejected event and confirm it stays private. See doc/Event_Submissions_Testing.md for the full acceptance checks.

@@ -70,7 +70,7 @@ The initial schema is not rerunnable against existing tables. The seed uses stab
 
 Run the constraint tests after loading the seed. Execute them as a complete script. If execution fails, run `ROLLBACK;` before continuing.
 
-These SQL files are currently executed manually, for example through DBeaver. There is no automated migration runner yet.
+The initial schema and catalog scripts are manual setup operations. `npm start` runs the additive submission migration 002 automatically before opening the server; it never executes seed/reset scripts.
 
 ## Public endpoints
 
@@ -272,9 +272,9 @@ The Android app defaults to the hosted API at https://hyena-api-np3j.onrender.co
 
 ### Event submission and administrator review (feature branch)
 
-The feature/event-submissions branch adds a one-time event form, public pending-submission API, venue search, and a private /admin/ dashboard. These changes are not deployed to the current master service automatically. See **../doc/Event_Submissions_Testing.md** for migration 002, private administrator configuration, local Android URL, acceptance steps, API examples, and production rollout order.
+The backend includes a one-time event form API, public pending submissions, venue search, and a private /admin/ dashboard on the existing Render service. See **../doc/Event_Submissions_Testing.md** for migration 002, private administrator configuration, local Android URL, acceptance steps, API examples, and production rollout order.
 
-Apply db/migrations/002_event_submissions.sql before testing submissions. It creates separate pending-review and hashed-session storage; existing published data is unchanged. Run `node scripts/create-admin-password.js` to generate the private ADMIN_PASSWORD_HASH and set ADMIN_USERNAME in the ignored backend/.env. User-facing account sign-in is still not implemented; this credential is only for the review dashboard.
+`npm start` applies db/migrations/002_event_submissions.sql before serving submissions. It creates separate pending-review and hashed-session storage; existing published data is unchanged. Run `node scripts/create-admin-password.js` to generate the private ADMIN_PASSWORD_HASH and set ADMIN_USERNAME in the ignored backend/.env. User-facing account sign-in is still not implemented; this credential is only for the review dashboard.
 
 Pending/rejected submissions are excluded from discovery because they never enter experiences. Approval uses the same transaction-owned publisher as the curator API, revalidates active references and the event end time, locks the submission row, and publishes exactly once. A new venue can be created or matched to an existing one. The existing curator bearer key never enters dashboard JavaScript or Android. Admin mutations require session, CSRF, same Origin and JSON; production requires HTTPS. Password rotation and logout invalidate sessions.
 
