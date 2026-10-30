@@ -4,7 +4,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.net.Uri
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.ui.components.PageHeader
@@ -19,8 +23,12 @@ fun ExperienceDetailsScreen(
     modifier: Modifier = Modifier,
     isSaved: Boolean = false,
     savingEnabled: Boolean = true,
-    onToggleSave: () -> Unit = {}
+    onToggleSave: () -> Unit = {},
+    latitude: Double? = null,
+    longitude: Double? = null
 ) {
+    val context = LocalContext.current
+    var directionsError by remember { mutableStateOf<String?>(null) }
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -29,6 +37,20 @@ fun ExperienceDetailsScreen(
         PageHeader("Experience / Details", title, businessName)
         DetailSection("When", schedule)
         DetailSection("Price & offer", offer)
+        if (latitude != null && longitude != null && latitude.isFinite() && longitude.isFinite() && latitude in -90.0..90.0 && longitude in -180.0..180.0) {
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
+                val destination = Uri.encode("$latitude,$longitude ($businessName)")
+                try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$destination")))
+                    directionsError = null
+                } catch (error: ActivityNotFoundException) {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude")))
+                    } catch (fallback: ActivityNotFoundException) { directionsError = "Install a map app or browser to get directions." }
+                }
+            }) { Text("Get directions") }
+        } else Text("Directions are unavailable because this event has no venue coordinates.", style = MaterialTheme.typography.bodySmall)
+        directionsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(onClick = onToggleSave, enabled = savingEnabled, modifier = Modifier.fillMaxWidth()) {
             Text(if (isSaved) "Remove from saved" else "Save this experience")
         }

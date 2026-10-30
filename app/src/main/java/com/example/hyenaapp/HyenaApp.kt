@@ -69,6 +69,7 @@ import kotlinx.coroutines.launch
 fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange: (AppPreferences) -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val reminders = remember(context) { com.example.hyenaapp.reminders.EventReminders(context) }
     val savedStore = remember(context) { SavedExperienceStore(context) }
     var savedExperiences by remember { mutableStateOf<List<Experience>>(emptyList()) }
     var savesLoading by remember { mutableStateOf(true) }
@@ -81,6 +82,8 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
         savesReady = false
         try {
             savedExperiences = savedStore.load()
+            reminders.retainSaved(savedExperiences.map { it.id }.toSet())
+            reminders.restore()
             savedError = null
             savesReady = true
         } catch (cancelled: CancellationException) {
@@ -97,6 +100,7 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
                     val updated = SavedExperienceCodec.toggle(savedExperiences, experience)
                     savedStore.save(updated)
                     savedExperiences = updated
+                    reminders.retainSaved(updated.map { it.id }.toSet())
                     savedError = null
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -127,7 +131,7 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
         })
     }
 
-    var selectedTab by rememberSaveable { mutableStateOf("Home") }
+    var selectedTab by rememberSaveable { mutableStateOf(if ((context as? android.app.Activity)?.intent?.action == "com.example.hyenaapp.OPEN_SAVED") "Saved" else "Home") }
     var showingSubmission by rememberSaveable { mutableStateOf(false) }
     var showingDetails by rememberSaveable { mutableStateOf(false) }
     var detailId by rememberSaveable { mutableStateOf("") }
@@ -218,6 +222,7 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
                     val experience = Experience(detailId, detailTitle, detailBusiness, detailSchedule, detailOffer, detailStart, detailEnd, latitude = detailLatitude, longitude = detailLongitude)
                     ExperienceDetailsScreen(
                         title = detailTitle, businessName = detailBusiness,
+                        latitude = detailLatitude, longitude = detailLongitude,
                         schedule = displaySchedule(experience, timeZone), offer = detailOffer,
                         onBack = { showingDetails = false }, isSaved = detailId in savedIds,
                         savingEnabled = savingEnabled, onToggleSave = { toggleSave(experience) }

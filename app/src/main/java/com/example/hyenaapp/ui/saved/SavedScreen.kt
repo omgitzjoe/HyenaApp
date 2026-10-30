@@ -1,5 +1,6 @@
 package com.example.hyenaapp.ui.saved
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,12 +33,14 @@ fun SavedScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item { PageHeader("Your collection / Saved", "Keep the good ones.", "Your shortlist, saved on this phone. Check current details before heading out.") }
+        item { Text("Reminders use the start time saved with each event. Android may delay delivery to save battery. Check current event details if plans change.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when {
             loading -> item { CircularProgressIndicator() }
             !available -> item { Text("Saved experiences could not be loaded. Use Retry saved storage above.") }
             experiences.isEmpty() -> item { Text("Nothing saved yet. Save an experience from Home or Explore.") }
             else -> items(experiences, key = { it.id }) { original ->
                 val experience = original.copy(schedule = displaySchedule(original, timeZone))
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 ExperienceCard(
                     title = experience.title, businessName = experience.businessName,
                     schedule = experience.schedule, offer = experience.offer, distanceMiles = experience.distanceMiles,
@@ -45,6 +48,8 @@ fun SavedScreen(
                     onToggleSave = { onToggleSave(experience) },
                     onClick = { onExperienceClick(experience) }
                 )
+                ReminderControls(original, savingEnabled)
+                }
             }
         }
     }
