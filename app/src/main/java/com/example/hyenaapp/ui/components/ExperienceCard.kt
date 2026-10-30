@@ -19,6 +19,7 @@ fun ExperienceCard(
     businessName: String,
     schedule: String,
     offer: String,
+    distanceMiles: Double? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
     isSaved: Boolean = false,
@@ -40,6 +41,7 @@ fun ExperienceCard(
                 text = businessName,
                 style = MaterialTheme.typography.bodyMedium
             )
+            distanceMiles?.let { Text(String.format(java.util.Locale.US, "%.1f mi away", it)) }
             Text(
                 text = schedule,
                 style = MaterialTheme.typography.bodyMedium

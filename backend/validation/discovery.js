@@ -34,10 +34,16 @@ function parseDiscoveryQuery(query) {
         throw new DiscoveryQueryError("INVALID_LIMIT", "Limit must be an integer from 1 through 100.");
     }
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    for (const key of ["areaId", "categoryId"]) {
+    if (query.areaId !== undefined) throw new DiscoveryQueryError("AREAS_REMOVED", "Search using your location instead of an area.");
+    for (const key of ["categoryId"]) {
         if (query[key] !== undefined && (typeof query[key] !== "string" || !uuid.test(query[key]))) {
             throw new DiscoveryQueryError(key === "areaId" ? "INVALID_AREA" : "INVALID_CATEGORY", `${key} must be a UUID.`);
         }
+    }
+    const categoryIds = query.categoryIds === undefined ? (query.categoryId ? [query.categoryId] : []) :
+        (typeof query.categoryIds === "string" ? query.categoryIds.split(",") : []);
+    if (query.categoryIds !== undefined && (typeof query.categoryIds !== "string" || !categoryIds.length || categoryIds.length > 20 || categoryIds.some(id => !uuid.test(id)) || new Set(categoryIds).size !== categoryIds.length || query.categoryId !== undefined)) {
+        throw new DiscoveryQueryError("INVALID_CATEGORY", "Provide up to 20 distinct category UUIDs separated by commas.");
     }
     // Cursor pagination is not implemented: never silently repeat page one.
     if (query.cursor !== undefined) {
@@ -60,6 +66,7 @@ function parseDiscoveryQuery(query) {
         if (query.areaId !== undefined) throw new DiscoveryQueryError("INVALID_PROXIMITY", "Choose proximity or area filtering, not both.");
         proximity = { latitude: Number(query.latitude), longitude: Number(query.longitude), radiusMiles: Number(query.radiusMiles ?? 10) };
     }
+    if (timeZone === null && proximity) timeZone = require("../services/venueLocation").venueTimeZone(proximity);
     const priceMode = query.price ?? "any";
     if (typeof priceMode !== "string" || !["any", "free", "max"].includes(priceMode)) {
         throw new DiscoveryQueryError("INVALID_PRICE", "Choose any, free, or max for price.");
@@ -80,7 +87,7 @@ function parseDiscoveryQuery(query) {
     }
     return {
         search: search.trim(), window, date, timeZone, proximity, limit: Number(rawLimit),
-        areaId: query.areaId ?? null, categoryId: query.categoryId ?? null, priceMode, maxPrice, currency
+        categoryIds, categoryId: query.categoryId ?? null, priceMode, maxPrice, currency
     };
 }
 

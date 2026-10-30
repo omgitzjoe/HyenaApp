@@ -39,7 +39,8 @@ import com.example.hyenaapp.data.repository.SavedExperienceStore
 import com.example.hyenaapp.data.repository.displaySchedule
 import com.example.hyenaapp.domain.model.Experience
 import com.example.hyenaapp.ui.components.DiscoveryFiltersPanel
-import com.example.hyenaapp.ui.components.NearbyControls
+import com.example.hyenaapp.ui.components.LocationTracker
+import com.example.hyenaapp.ui.components.LocationControls
 import com.example.hyenaapp.ui.details.ExperienceDetailsScreen
 import com.example.hyenaapp.ui.explore.ExploreScreen
 import com.example.hyenaapp.ui.home.HomeScreen
@@ -97,21 +98,21 @@ fun HyenaApp() {
     var radiusMiles by rememberSaveable { mutableStateOf(10) }
     var timeZone by remember { mutableStateOf(ZoneId.systemDefault().id) }
     var resetKey by remember { mutableStateOf(0) }
+    var locationMessage by remember { mutableStateOf("Finding your location…") }
+    LocationTracker(resetKey, { nearby = it }, { locationMessage = it })
     val locationControls: @Composable () -> Unit = {
-        key(resetKey) { NearbyControls(nearby, radiusMiles, { nearby = it }, { radiusMiles = it }) }
-        Text("Times shown in $timeZone")
+        LocationControls(nearby, radiusMiles, locationMessage, { radiusMiles = it }, { resetKey++ })
     }
-    var selectedAreaId by rememberSaveable { mutableStateOf<String?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var categoryId by rememberSaveable { mutableStateOf<String?>(null) }
+    var categoryIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var selectedWindow by rememberSaveable { mutableStateOf("today") }
     var selectedDate by rememberSaveable { mutableStateOf<String?>(null) }
     var priceMode by rememberSaveable { mutableStateOf("any") }
     var maxPrice by rememberSaveable { mutableStateOf("25.00") }
-    val filters = DiscoveryFilters(searchQuery, categoryId, selectedWindow, selectedDate, priceMode, maxPrice)
+    val filters = DiscoveryFilters(searchQuery, categoryIds, selectedWindow, selectedDate, priceMode, maxPrice)
     val updateFilters: (DiscoveryFilters) -> Unit = {
         searchQuery = it.query
-        categoryId = it.categoryId
+        categoryIds = ArrayList(it.categoryIds)
         selectedWindow = it.window
         selectedDate = it.date
         priceMode = it.priceMode
@@ -119,10 +120,7 @@ fun HyenaApp() {
     }
     val filterControls: @Composable () -> Unit = {
         DiscoveryFiltersPanel(filters, timeZone, updateFilters, onClear = {
-            resetKey++
             updateFilters(DiscoveryFilters())
-            selectedAreaId = null
-            nearby = null
             radiusMiles = 10
         })
     }
@@ -137,7 +135,11 @@ fun HyenaApp() {
     var detailOffer by rememberSaveable { mutableStateOf("") }
     var detailStart by rememberSaveable { mutableStateOf<String?>(null) }
     var detailEnd by rememberSaveable { mutableStateOf<String?>(null) }
+    var detailLatitude by rememberSaveable { mutableStateOf<Double?>(null) }
+    var detailLongitude by rememberSaveable { mutableStateOf<Double?>(null) }
     val openExperience: (Experience) -> Unit = {
+        detailLatitude = it.latitude
+        detailLongitude = it.longitude
         detailId = it.id
         detailTitle = it.title
         detailBusiness = it.businessName
@@ -190,9 +192,9 @@ fun HyenaApp() {
             }
             Box(Modifier.weight(1f)) {
                 if (showingSubmission) {
-                    SubmitEventScreen(initialAreaId = selectedAreaId, onDone = { showingSubmission = false })
+                    SubmitEventScreen(nearby = nearby, onDone = { showingSubmission = false })
                 } else if (showingDetails) {
-                    val experience = Experience(detailId, detailTitle, detailBusiness, detailSchedule, detailOffer, detailStart, detailEnd)
+                    val experience = Experience(detailId, detailTitle, detailBusiness, detailSchedule, detailOffer, detailStart, detailEnd, latitude = detailLatitude, longitude = detailLongitude)
                     ExperienceDetailsScreen(
                         title = detailTitle, businessName = detailBusiness,
                         schedule = displaySchedule(experience, timeZone), offer = detailOffer,
@@ -201,22 +203,22 @@ fun HyenaApp() {
                     )
                 } else when (selectedTab) {
                     "Home" -> HomeScreen(
-                        selectedAreaId = selectedAreaId, nearby = nearby, radiusMiles = radiusMiles,
+                        nearby = nearby, radiusMiles = radiusMiles,
                         timeZone = timeZone, locationControls = locationControls,
-                        onAreaChange = { selectedAreaId = it }, savedIds = savedIds,
+                        savedIds = savedIds,
                         savingEnabled = savingEnabled, onToggleSave = toggleSave,
-                        onExperienceClick = openExperience, onExplore = { selectedTab = "Explore" }
+                        onExperienceClick = openExperience, onRefreshLocation = { resetKey++ }, onExplore = { selectedTab = "Explore" }
                     )
                     "Explore" -> ExploreScreen(
-                        selectedAreaId = selectedAreaId, nearby = nearby, radiusMiles = radiusMiles,
+                        nearby = nearby, radiusMiles = radiusMiles,
                         timeZone = timeZone, locationControls = locationControls,
                         filters = filters, filterControls = filterControls,
-                        onAreaChange = { selectedAreaId = it }, savedIds = savedIds,
+                        savedIds = savedIds,
                         savingEnabled = savingEnabled, onToggleSave = toggleSave,
                         onExperienceClick = openExperience
                     )
                     "Saved" -> SavedScreen(
-                        experiences = savedExperiences, timeZone = timeZone, loading = savesLoading, available = savesReady,
+                        experiences = savedExperiences.map { it.copy(distanceMiles = distanceFrom(nearby, it)) }.sortedBy { it.distanceMiles ?: Double.MAX_VALUE }, timeZone = timeZone, loading = savesLoading, available = savesReady,
                         savingEnabled = savingEnabled, onToggleSave = toggleSave,
                         onExperienceClick = openExperience
                     )
@@ -224,4 +226,11 @@ fun HyenaApp() {
             }
         }
     }
+}
+
+private fun distanceFrom(location: NearbyLocation?, experience: Experience): Double? {
+    if (location == null || experience.latitude == null || experience.longitude == null) return null
+    val result = FloatArray(1)
+    android.location.Location.distanceBetween(location.latitude, location.longitude, experience.latitude, experience.longitude, result)
+    return result[0] / 1609.344
 }

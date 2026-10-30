@@ -12,17 +12,17 @@ object ExperienceRepository {
     suspend fun getExperiences(
         query: String = "",
         window: String = "today",
-        areaId: String? = null,
         timeZone: String = ZoneId.systemDefault().id,
         nearby: NearbyLocation? = null,
         radiusMiles: Int = 10,
         filters: DiscoveryFilters = DiscoveryFilters(),
         limit: Int = 20
     ): List<Experience> {
+        requireNotNull(nearby) { "Location is required to discover nearby experiences." }
         return ApiClient.api.getExperiences(
-            query, window, if (nearby == null) areaId else null, timeZone,
+            query, window, timeZone,
             nearby?.latitude, nearby?.longitude, if (nearby != null) radiusMiles else null,
-            categoryId = filters.categoryId,
+            categoryIds = filters.categoryIds.takeIf { it.isNotEmpty() }?.joinToString(","),
             price = filters.priceMode,
             maxPrice = filters.maxPrice.takeIf { filters.priceMode == "max" },
             currency = "USD".takeIf { filters.priceMode == "max" },
@@ -43,7 +43,8 @@ object ExperienceRepository {
                     ?: "No dated occurrence available",
                 offer = offerLabel,
                 occurrenceStart = dto.nextOccurrence?.startsAt,
-                occurrenceEnd = dto.nextOccurrence?.endsAt
+                occurrenceEnd = dto.nextOccurrence?.endsAt,
+                distanceMiles = dto.distanceMiles, latitude = dto.latitude, longitude = dto.longitude
             )
         }
     }
@@ -63,7 +64,7 @@ internal fun formatInterval(startsAt: String, endsAt: String, zone: ZoneId): Str
     } else {
         end.format(dateTime)
     }
-    return "${start.format(dateTime)}–$endLabel · ${zone.id}"
+    return "${start.format(dateTime)}–$endLabel"
 }
 
 data class NearbyLocation(val latitude: Double, val longitude: Double)

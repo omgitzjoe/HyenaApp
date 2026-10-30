@@ -48,7 +48,10 @@ const localTime = z.string()
     )
     .transform(value => value.length === 5 ? `${value}:00` : value);
 
-const scheduleSchema = z.strictObject({
+const scheduleSchema = z.preprocess(value => {
+    if (value && typeof value === "object" && value.allDay === true) return { ...value, startTime: "00:00", endTime: "23:59", endsNextDay: false };
+    return value;
+}, z.strictObject({
     kind: z.enum(["ONCE", "WEEKLY"]),
     startDate: z.iso.date(),
     endDate: z.iso.date().nullable().default(null),
@@ -62,6 +65,7 @@ const scheduleSchema = z.strictObject({
         .refine(isValidTimeZone, {
             message: "Use a valid named time zone, such as America/Denver."
         }),
+    allDay: z.boolean().default(false),
     weekdays: z.array(z.number().int().min(1).max(7))
         .max(7)
         .refine(days => new Set(days).size === days.length, {
@@ -104,7 +108,7 @@ const scheduleSchema = z.strictObject({
             message: "Start/end times must agree with endsNextDay.",
             path: ["endTime"]
         }
-    );
+    ));
 
 const createExperienceSchema = z.strictObject({
     businessId: z.uuid(),

@@ -40,7 +40,7 @@ fun SavedScreen(
                 val experience = original.copy(schedule = displaySchedule(original, timeZone))
                 ExperienceCard(
                     title = experience.title, businessName = experience.businessName,
-                    schedule = experience.schedule, offer = experience.offer,
+                    schedule = experience.schedule, offer = experience.offer, distanceMiles = experience.distanceMiles,
                     isSaved = true, savingEnabled = savingEnabled,
                     onToggleSave = { onToggleSave(experience) },
                     onClick = { onExperienceClick(experience) }

@@ -95,9 +95,9 @@ function evaluateCandidates(rows, filters, now, onInvalid = () => {}) {
             onInvalid(row.id, error);
         }
     }
-    matches.sort((a, b) => filters.window === "all"
+    matches.sort((a, b) => (filters.proximity ? a.distanceMiles - b.distanceMiles : 0) || (filters.window === "all"
         ? a.title.localeCompare(b.title) || a.id.localeCompare(b.id)
-        : Temporal.Instant.compare(a.nextOccurrence.startsAt, b.nextOccurrence.startsAt) || a.id.localeCompare(b.id));
+        : Temporal.Instant.compare(a.nextOccurrence.startsAt, b.nextOccurrence.startsAt) || a.id.localeCompare(b.id)));
     return {
         items: matches.slice(0, filters.limit),
         count: Math.min(matches.length, filters.limit),

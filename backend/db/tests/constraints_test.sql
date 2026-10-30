@@ -40,18 +40,6 @@ EXCEPTION WHEN foreign_key_violation THEN
 RAISE NOTICE 'PASS: Save for nonexistent user rejected';
 END;
 BEGIN
-INSERT INTO businesses (area_id,name,address,city) VALUES ('ff5751d7-7930-502f-9e08-4f4fce43044d','Test','Test','Test');
-RAISE EXCEPTION 'FAIL: Business in nonexistent area was accepted';
-EXCEPTION WHEN foreign_key_violation THEN
-RAISE NOTICE 'PASS: Business in nonexistent area rejected';
-END;
-BEGIN
-DELETE FROM discovery_areas WHERE id='2bd941f1-5abe-591f-b6d1-7e1acc8b06d3';
-RAISE EXCEPTION 'FAIL: Delete referenced area was accepted';
-EXCEPTION WHEN foreign_key_violation OR SQLSTATE '23001' THEN
-RAISE NOTICE 'PASS: Delete referenced area rejected';
-END;
-BEGIN
 DELETE FROM businesses WHERE id='89a68907-b5aa-5102-91bb-7e2f86a8b324';
 RAISE EXCEPTION 'FAIL: Delete referenced business was accepted';
 EXCEPTION WHEN foreign_key_violation OR SQLSTATE '23001' THEN

@@ -1,5 +1,7 @@
 # Event submissions and administrator review
 
+**Updated workflow:** see [Location_Discovery.md](Location_Discovery.md). Area and editable zone fields have been removed; venues use coordinates, events support multiple categories and All Day. `npm start` now applies migration 003 as well as 002. Earlier field-level examples below describe the original form.
+
 This feature uses the existing Render backend and Aiven database. `npm start` applies the additive submission migration before starting the API. Administrator sign-in requires private Render environment settings.
 
 ## What is implemented

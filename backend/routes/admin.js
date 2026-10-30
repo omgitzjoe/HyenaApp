@@ -5,6 +5,8 @@ const {z}=require('zod');
 const {verifyPassword,configured,hashToken}=require('../services/adminPasswords');
 const {reviewSubmission}=require('../services/submissions');
 const {ReviewError}=require('../services/publishExperience');
+const {scheduleBounds}=require('../validation/submission');
+const {venueTimeZone}=require('../services/venueLocation');
 const {requestLimit}=require('../middleware/requestLimits');
 const cookieName='hyena_admin';
 function sessionToken(req){const value=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='));const token=value?.slice(cookieName.length+1);return /^[a-f0-9]{64}$/.test(token||'')?token:null;}
@@ -71,11 +73,14 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
             let cursor=null;
             if(parsed.data.before){const r=await pool.query('SELECT created_at::text AS created_at,id FROM event_submissions WHERE id=$1',[parsed.data.before]);if(!r.rows.length)return res.status(400).json({error:{code:'INVALID_CURSOR',message:'Reload the queue.'}});cursor=r.rows[0];}
             const result=await pool.query(`SELECT s.id,s.payload,s.status,s.published_experience_id AS "experienceId",s.created_at AS "createdAt",s.reviewed_at AS "reviewedAt",s.reviewed_by AS "reviewedBy",s.review_note AS "reviewNote",
-                CASE WHEN b.id IS NULL THEN NULL ELSE jsonb_build_object('id',b.id,'name',b.name,'address',b.address,'city',b.city,'areaId',b.area_id,'isActive',b.is_active) END AS business
+                CASE WHEN b.id IS NULL THEN NULL ELSE jsonb_build_object('id',b.id,'name',b.name,'address',b.address,'city',b.city,'latitude',b.latitude,'longitude',b.longitude,'isActive',b.is_active) END AS business
                 FROM event_submissions s LEFT JOIN businesses b ON b.id::text=s.payload#>>'{venue,businessId}'
                 WHERE s.status=$1 AND ($2::timestamptz IS NULL OR (s.created_at,s.id)<($2::timestamptz,$3::uuid))
                 ORDER BY s.created_at DESC,s.id DESC LIMIT 51`,[parsed.data.status,cursor?.created_at??null,cursor?.id??null]);
-            const items=result.rows.slice(0,50);res.json({items,nextCursor:result.rows.length>50?items[items.length-1].id:null});
+            const items=result.rows.slice(0,50).map(row=>{
+                try { const location=row.payload.venue.proposal||row.business; return {...row,occurrence:scheduleBounds({...row.payload.event.schedule,timeZone:venueTimeZone(location)})}; }
+                catch { return {...row,occurrence:null}; }
+            });res.json({items,nextCursor:result.rows.length>50?items[items.length-1].id:null});
         }catch(error){logger.error('Queue failed:',error.message);res.status(500).json({error:{code:'QUEUE_UNAVAILABLE',message:'Unable to load submissions. Check that migration 002 is applied.'}});}
     });
     for(const [route,status,schema] of [['approve','APPROVED',approval],['reject','REJECTED',rejection]]){

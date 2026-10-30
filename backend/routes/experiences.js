@@ -56,8 +56,7 @@ function createExperienceRouter({ pool, clock = () => new Date(), logger = conso
                     b.longitude,
                     b.phone,
                     b.website_url AS "websiteUrl",
-                    a.id AS "areaId",
-                    a.name AS "areaName",
+                    s.all_day AS "allDay",
                     s.kind AS "scheduleKind",
                     s.start_date::text AS "startDate",
                     s.end_date::text AS "endDate",
@@ -89,12 +88,10 @@ function createExperienceRouter({ pool, clock = () => new Date(), logger = conso
                     ) AS "categories"
                 FROM experiences e
                 JOIN businesses b ON b.id = e.business_id
-                JOIN discovery_areas a ON a.id = b.area_id
                 JOIN experience_schedules s ON s.experience_id = e.id
                 WHERE e.id = $1::uuid
                     AND e.is_active = TRUE
                     AND b.is_active = TRUE
-                    AND a.is_active = TRUE
             `, [id]);
 
             if (result.rows.length === 0) {

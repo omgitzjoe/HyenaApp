@@ -10,12 +10,11 @@ interface HyenaApi {
     suspend fun getExperiences(
         @Query("q") query: String = "",
         @Query("window") window: String = "today",
-        @Query("areaId") areaId: String? = null,
         @Query("timeZone") timeZone: String = java.time.ZoneId.systemDefault().id,
         @Query("latitude") latitude: Double? = null,
         @Query("longitude") longitude: Double? = null,
         @Query("radiusMiles") radiusMiles: Int? = null,
-        @Query("categoryId") categoryId: String? = null,
+        @Query("categoryIds") categoryIds: String? = null,
         @Query("price") price: String = "any",
         @Query("maxPrice") maxPrice: String? = null,
         @Query("currency") currency: String? = null,
@@ -24,7 +23,7 @@ interface HyenaApi {
     ): ExperienceResponse
 
     @GET("api/v1/businesses")
-    suspend fun getBusinesses(@Query("areaId") areaId: String, @Query("q") query: String = ""): BusinessResponse
+    suspend fun getBusinesses(@Query("q") query: String = "", @Query("latitude") latitude: Double? = null, @Query("longitude") longitude: Double? = null): BusinessResponse
 
     @POST("api/v1/submissions")
     suspend fun submitEvent(@Body body: EventSubmissionRequest): SubmissionResponse
@@ -32,6 +31,4 @@ interface HyenaApi {
     @GET("api/v1/categories")
     suspend fun getCategories(): CategoryResponse
 
-    @GET("api/v1/areas")
-    suspend fun getAreas(): AreaResponse
 }

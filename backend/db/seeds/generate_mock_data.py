@@ -43,15 +43,18 @@ def insert(table, columns, values):
     updates = ', '.join(f'{c}=EXCLUDED.{c}' for c in columns if c != 'id')
     return f"INSERT INTO {table} ({', '.join(columns)}) VALUES\n" + ',\n'.join('(' + ', '.join(map(literal, row)) + ')' for row in values) + f'\nON CONFLICT (id) DO UPDATE SET {updates}, updated_at=CURRENT_TIMESTAMP;\n'
 
-old_areas, old_businesses, old_categories, old_experiences, old_schedules = [rows(t) for t in ['discovery_areas', 'businesses', 'categories', 'experiences', 'experience_schedules']]
-assert (len(old_areas),len(old_businesses),len(old_categories),len(old_experiences)) == (10,50,16,225)
-area_ids = [plain(r[0]) for r in old_areas]
-business_ids = [plain(r[0]) for r in old_businesses]
-category_ids = [plain(r[0]) for r in old_categories]
-experience_ids = [plain(r[0]) for r in old_experiences]
-schedule_ids = {plain(r[1]): plain(r[0]) for r in old_schedules}
+import json
+identities = json.loads((ROOT / 'catalog_identities.json').read_text())
+old_areas = [[literal(x[0]), '', literal(x[1])] for x in identities['legacyLocations']]
+old_businesses = [[literal(x[0]),literal(x[1])] for x in identities['venues']]
+old_categories = [[literal(x[0]),'',literal(x[1])] for x in identities['categories']]
+area_ids = [x[0] for x in identities['legacyLocations']]
+business_ids = [x[0] for x in identities['venues']]
+category_ids = [x[0] for x in identities['categories']]
+experience_ids = identities['experiences']
+schedule_ids = identities['schedules']
 areas = [
-    ('Rexburg','83440','America/Denver',43.8231,-111.7924,'ID'),
+    ('Rexburg','83440','America/Boise',43.8231,-111.7924,'ID'),
     ('Idaho Falls','83401','America/Denver',43.4917,-112.0339,'ID'),
     ('Boise','83702','America/Boise',43.615,-116.2023,'ID'),
     ('New York','10001','America/New_York',40.7128,-74.006,'NY'),
@@ -59,7 +62,7 @@ areas = [
     ('Phoenix','85001','America/Phoenix',33.4484,-112.074,'AZ'),
     ('Tokyo','100-0001','Asia/Tokyo',35.6762,139.6503,'Tokyo'),
     ('Online','00000','UTC',None,None,None),
-    ('Island Park','83429','America/Denver',44.4244,-111.3711,'ID'),
+    ('Island Park','83429','America/Boise',44.4244,-111.3711,'ID'),
     ('West Bench','83704','America/Boise',43.615,-116.27,'ID'),
 ]
 area_values=[]
@@ -75,7 +78,7 @@ for i,old in enumerate(old_businesses):
     # Preserve one active venue without coordinates, and inactive venue/area controls.
     missing=i==2 or ai==7
     offset=((i//8)%5-2)*0.006
-    business_values.append([business_ids[i],area_ids[ai],venue_names[i],"Fictional venue for Hyena's demonstration catalog; not a real business.",f'{101+i*7} Willow Lane',name,region,postal,None if missing else round(lat+offset,6),None if missing else round(lon-offset,6),None,None,None,i!=5])
+    business_values.append([business_ids[i],area_ids[ai],venue_names[i],"Fictional venue for Hyena's demonstration catalog; not a real business.",f'{101+i*7} Willow Lane',name,region,postal,None if missing else round(lat+offset,6),None if missing else round(lon-offset,6),None,None,None,i!=5 and ai!=9])
 category_names=['Food','Music','Games','Family','Outdoors','Arts','Sports','College','Entertainment','Date Night','Learning','Markets','Community','Movies','Seasonal','Wellness']
 category_values=[]
 for i,name in enumerate(category_names):
@@ -130,7 +133,7 @@ for i,eid in enumerate(experience_ids):
     start,end=times[variant];kind='WEEKLY';startdate=SQL(f"({today(zone)} - 30)");enddate=None;overnight=variant==6;weekdays=list(range(1,8))
     if variant==0:
         title=['Neighborhood Recipe Exchange','Community Music Stream','Community Puzzle Corner','Family Activity Pack','Self-Guided Nature Trail','Public Art Walk','Outdoor Fitness Circuit','Open Study Lounge','Community Story Exchange','Self-Guided Garden Walk','Community Language Exchange','Neighborhood Swap Table','Community Noticeboard Walk','Community Film Discussion','Harvest Scavenger Hunt','Self-Guided Mindfulness Walk'][ci]
-        start,end='00:00','00:00';overnight=True
+        start,end='00:00','23:59';overnight=False
     if variant==7:
         kind='ONCE';weekdays=[]
         a=f"((CURRENT_TIMESTAMP AT TIME ZONE {literal(zone)}) - INTERVAL '30 minutes')"
@@ -144,12 +147,12 @@ for i,eid in enumerate(experience_ids):
         if edge==15: kind='WEEKLY';startdate=day_expr(zone,7);enddate=None;weekdays=[2,4,6];start,end='18:00','20:00';overnight=False
         if edge==16: kind='WEEKLY';startdate=day_expr(zone,-30);enddate=day_expr(zone,-1);weekdays=list(range(1,8));start,end='17:00','19:00';overnight=False
         if edge==17: kind='WEEKLY';startdate=day_expr(zone,-7);enddate=today(zone);weekdays=list(range(1,8));start,end='16:00','18:00';overnight=False
-        if edge==20: kind='WEEKLY';weekdays=list(range(1,8));start,end='00:00','00:00';overnight=True
+        if edge==20: kind='WEEKLY';weekdays=list(range(1,8));start,end='00:00','23:59';overnight=False
         if edge in [21,22,23]:
             kind='ONCE';weekdays=[];startdate=SQL("DATE '"+{21:'2027-03-14',22:'2026-11-01',23:'2028-02-29'}[edge]+"'");enddate=startdate
             start,end={21:('02:15','04:00'),22:('01:15','02:15'),23:('18:00','20:00')}[edge];overnight=False
             # DST probes must use a zone that observes the US transition.
-            vi=local_venues[0];zone='America/Denver'
+            vi=local_venues[0];zone='America/Boise'
     offer='Free admission' if price==0 else 'Pricing announced soon' if price is None else f'${price:.2f} per person'
     description=f"Join {title.lower()} at {venue_names[vi]}. A welcoming small-group experience with time to meet others and try something new. Mock listing for development; not a real event or offer."
     if eid not in schedule_ids: active=False
@@ -158,23 +161,24 @@ for i,eid in enumerate(experience_ids):
     links.append((eid,category_ids[ci]))
     # Preserve the Food identity used by rollback-only constraint tests.
     if ci!=0 and i==0: links.append((eid,category_ids[0]))
-    if i>=192: links.append((eid,category_ids[(ci+3)%16]))
-    sid=schedule_ids[eid];schedule_values.append([sid,eid,kind,startdate,enddate,start,end,overnight,zone])
+    if i % 4 == 0 or i>=192: links.append((eid,category_ids[(ci+3)%16]))
+    sid=schedule_ids[eid];schedule_values.append([sid,eid,kind,startdate,enddate,start,end,overnight,zone,start=='00:00' and end=='23:59'])
     days.extend((sid,d) for d in weekdays)
     coverage.append((eid,ci,variant,scenario))
 
 catalog='-- Fictional demonstration catalog. All venues and offers are invented.\n-- Run the entire script in DBeaver. Stable IDs preserve references; reruns refresh relative dates.\n-- Only the existing mock catalog IDs are updated. No users or sessions are changed here.\nBEGIN;\nSET LOCAL TIME ZONE \'UTC\';\n'
-catalog+=insert('discovery_areas',['id','name','slug','postal_codes','time_zone','latitude','longitude','is_active'],area_values)
-catalog+=insert('businesses',['id','area_id','name','description','address','city','region','postal_code','latitude','longitude','phone','website_url','image_url','is_active'],business_values)
+catalog+=insert('businesses',['id','time_zone','name','description','address','city','region','postal_code','latitude','longitude','phone','website_url','image_url','is_active'],[[v[0],areas[area_ids.index(v[1])][2],*v[2:]] for v in business_values])
 catalog+=insert('categories',['id','name','slug','icon_key'],category_values)
 catalog+=insert('experiences',['id','business_id','title','description','type','price_amount','currency','price_label','requirements','image_url','source_url','is_active'],experience_values)
 catalog+='DELETE FROM experience_categories WHERE experience_id IN ('+', '.join(map(literal,experience_ids))+');\n'
 catalog+='INSERT INTO experience_categories (experience_id, category_id) VALUES\n'+',\n'.join('('+', '.join(map(literal,x))+')' for x in sorted(set(links)))+'\nON CONFLICT DO NOTHING;\n'
-catalog+=insert('experience_schedules',['id','experience_id','kind','start_date','end_date','start_time','end_time','ends_next_day','time_zone'],schedule_values)
+catalog+=insert('experience_schedules',['id','experience_id','kind','start_date','end_date','start_time','end_time','ends_next_day','time_zone','all_day'],schedule_values)
 catalog+='DELETE FROM experience_schedule_days WHERE schedule_id IN ('+', '.join(literal(schedule_ids[x]) for x in experience_ids if x in schedule_ids)+');\n'
 catalog+='INSERT INTO experience_schedule_days (schedule_id, iso_weekday) VALUES\n'+',\n'.join('('+', '.join(map(literal,x))+')' for x in days)+'\nON CONFLICT DO NOTHING;\n'
 (ROOT/'refresh_mock_catalog.sql').write_text(catalog+'COMMIT;\n',encoding='utf-8')
 # Retain the original public account/session fixtures and consistency checks for fresh test databases.
 tail='INSERT INTO users ('+source.split('INSERT INTO users (',1)[1]
+tail='\n'.join(line for line in tail.splitlines() if 'FROM discovery_areas WHERE id IN' not in line)
+tail=tail.replace("SELECT 'discovery_areas' AS table_name, count(*) AS rows FROM discovery_areas UNION ALL SELECT 'businesses', count(*) FROM businesses","SELECT 'businesses' AS table_name, count(*) AS rows FROM businesses")+'\n'
 (ROOT/'sample_data.sql').write_text(catalog.replace('-- Only the existing mock catalog IDs are updated. No users or sessions are changed here.','-- Full fixture set: includes public demo accounts/sessions; use refresh_mock_catalog.sql for catalog-only updates.')+tail,encoding='utf-8')
 print('Generated 225 experiences, 50 venues, 16 populated categories; preserved all catalog IDs.')

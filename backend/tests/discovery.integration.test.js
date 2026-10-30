@@ -7,7 +7,8 @@ const express = require('express');
 const { PGlite } = require('@electric-sql/pglite');
 const createExperienceRouter = require('../routes/experiences');
 const createCategoryRouter = require('../routes/categories');
-const { discoverExperiences } = require('../services/discovery');
+const { discoverExperiences: discover } = require('../services/discovery');
+const discoverExperiences = (db,q,...args) => discover(db,{latitude:'43.8231',longitude:'-111.7924',radiusMiles:'100',...q},...args);
 const { DiscoveryQueryError } = require('../validation/discovery');
 const clock = '2026-10-28T18:00:00Z';
 let db, server, url;
@@ -27,8 +28,7 @@ before(async()=>{
     db=new PGlite(); await db.waitReady;
     await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations/initial_schema.sql'),'utf8'));
     for(const k of ['area','inactiveArea','business','closedBusiness','inactiveAreaBusiness','food','music','unused'])ids[k]=randomUUID();
-    await db.query("INSERT INTO discovery_areas (id,name,slug,time_zone,is_active) VALUES ($1,'Active Area','active','America/Denver',TRUE),($2,'Inactive Area','inactive','America/Denver',FALSE)",[ids.area,ids.inactiveArea]);
-    await db.query("INSERT INTO businesses (id,area_id,name,address,city,is_active) VALUES ($1,$2,'Joe''s Café','1 Test St','Test City',TRUE),($3,$2,'Closed Venue','2 Test St','Test City',FALSE),($4,$5,'Hidden Area Venue','3 Test St','Test City',TRUE)",[ids.business,ids.area,ids.closedBusiness,ids.inactiveAreaBusiness,ids.inactiveArea]);
+    await db.query("INSERT INTO businesses (id,name,address,city,is_active,latitude,longitude) VALUES ($1,'Joe''s Café','1 Test St','Test City',TRUE,43.8231,-111.7924),($2,'Closed Venue','2 Test St','Test City',FALSE,43.8231,-111.7924),($3,'Retired Venue','3 Test St','Test City',FALSE,43.8231,-111.7924)",[ids.business,ids.closedBusiness,ids.inactiveAreaBusiness]);
     await db.query("INSERT INTO categories (id,name,slug) VALUES ($1,'Food','food'),($2,'Music','music'),($3,'Unused','unused')",[ids.food,ids.music,ids.unused]);
     // More than a page of earlier-sorting expired records detects LIMIT-before-filter regressions.
     for(let n=0;n<25;n++)await addExperience(`A expired ${n}`,{startDate:'2020-01-01'});
@@ -49,7 +49,11 @@ before(async()=>{
     url=`http://127.0.0.1:${server.address().port}/api/v1/experiences`;
 });
 after(async()=>{if(server)await new Promise(r=>server.close(r));if(db)await db.close();});
-async function get(query=''){const r=await fetch(url+query);return {status:r.status,body:await r.json()};}
+async function get(query=''){
+    if (query.startsWith('/')) { const r=await fetch(url+query);return {status:r.status,body:await r.json()}; }
+    const params = new URLSearchParams(query.replace(/^\?/,''));
+    if (!params.has('latitude') && !params.has('longitude') && !params.has('radiusMiles')) { params.set('latitude','43.8231'); params.set('longitude','-111.7924'); params.set('radiusMiles','100'); }
+    const r=await fetch(url+'?'+params);return {status:r.status,body:await r.json()};}
 test('HTTP default today evaluates all SQL candidates before limit',async()=>{
     const {status,body}=await get();assert.equal(status,200);assert.equal(body.count,3);
     assert.ok(body.items.some(x=>x.id===ids.valid));assert.equal(body.window,'today');
@@ -71,12 +75,12 @@ test('SQL-looking input is treated as a literal search string',async()=>{
     assert.equal((await db.query('SELECT count(*)::int AS n FROM experiences')).rows[0].n,32);
 });
 test('SQL area/category filters combine with keyword/date filters',async()=>{
-    const r=await get(`?areaId=${ids.area}&categoryId=${ids.music}&q=Zulu`);
+    const r=await get(`?categoryId=${ids.music}&q=Zulu`);
     assert.equal(r.status,200);assert.deepEqual(r.body.items.map(x=>x.id),[ids.valid]);
     assert.equal((await get(`?categoryId=${ids.unused}`)).body.count,0);
 });
 test('unknown and inactive areas are rejected',async()=>{
-    for(const id of [randomUUID(),ids.inactiveArea]){const r=await get(`?areaId=${id}`);assert.equal(r.status,400);assert.equal(r.body.error.code,'INVALID_AREA');}
+    for(const id of [randomUUID(),ids.inactiveArea]){const r=await get(`?areaId=${id}`);assert.equal(r.status,400);assert.equal(r.body.error.code,'AREAS_REMOVED');}
 });
 test('unknown categories are rejected',async()=>assert.equal((await get(`?categoryId=${randomUUID()}`)).status,400));
 test('window all exposes expired listings but never inactive parents',async()=>{
@@ -111,7 +115,7 @@ for(const query of ['?window=bad','?window=date&date=2026-02-30','?window=date',
 test('database outage becomes a safe 500 response',async()=>{
     const app=express();app.use('/api/v1/experiences',createExperienceRouter({pool:{query:async()=>{throw Error('private connection detail');}},clock:()=>clock,logger}));
     const s=await new Promise(resolve=>{const candidate=app.listen(0,'127.0.0.1',()=>resolve(candidate));});
-    try{const r=await fetch(`http://127.0.0.1:${s.address().port}/api/v1/experiences`);assert.equal(r.status,500);assert.ok(!(await r.text()).includes('private connection'));}
+    try{const r=await fetch(`http://127.0.0.1:${s.address().port}/api/v1/experiences?latitude=43.8231&longitude=-111.7924`);assert.equal(r.status,500);assert.ok(!(await r.text()).includes('private connection'));}
     finally{await new Promise(r=>s.close(r));}
 });
 
@@ -122,17 +126,17 @@ test('proximity excludes missing coordinates and filters before limit', async ()
         const near = await get('?latitude=39.7392&longitude=-104.9903&radiusMiles=5&limit=1&timeZone=America%2FDenver');
         assert.equal(near.status, 200); assert.equal(near.body.count, 1); assert.equal(near.body.hasMore, true);
         assert.equal(near.body.items[0].distanceMiles, 0);
-        assert.equal('latitude' in near.body.items[0], false);
+        assert.equal('latitude' in near.body.items[0], true);
         assert.equal((await get('?latitude=40.7128&longitude=-74.0060&radiusMiles=25')).body.count, 0);
         assert.equal((await get('?latitude=39.7392&longitude=-104.9903&q=family')).body.count, 1);
-    } finally { await db.query('UPDATE businesses SET latitude=NULL, longitude=NULL WHERE id=$1', [ids.business]); }
+    } finally { await db.query('UPDATE businesses SET latitude=43.8231, longitude=-111.7924 WHERE id=$1', [ids.business]); }
 });
 test('distance handles antimeridian', async () => {
     try {
         await db.query('UPDATE businesses SET latitude=0, longitude=-179.99 WHERE id=$1', [ids.business]);
         const r = await get('?latitude=0&longitude=179.99&radiusMiles=5');
         assert.equal(r.body.count, 3); assert.ok(r.body.items.every(x => x.distanceMiles < 2));
-    } finally { await db.query('UPDATE businesses SET latitude=NULL, longitude=NULL WHERE id=$1', [ids.business]); }
+    } finally { await db.query('UPDATE businesses SET latitude=43.8231, longitude=-111.7924 WHERE id=$1', [ids.business]); }
 });
 test('HTTP rejects malformed proximity and time zone', async () => {
     for (const query of ['?latitude=91&longitude=0', '?timeZone=Mars%2FUnknown', '?latitude=0', '?radiusMiles=5']) assert.equal((await get(query)).status, 400);
@@ -163,7 +167,7 @@ test('maximum price never compares different currencies', async () => {
     } finally { await db.query('UPDATE experiences SET currency=$2 WHERE id=$1',[ids.percent,'USD']); }
 });
 test('category, price, keyword, area and date combine before limit', async () => {
-    const q=new URLSearchParams({window:'date',date:'2026-10-28',timeZone:'America/Denver',areaId:ids.area,categoryId:ids.music,price:'max',maxPrice:'10.50',currency:'USD',q:'family',limit:'1'});
+    const q=new URLSearchParams({window:'date',date:'2026-10-28',timeZone:'America/Denver',categoryId:ids.music,price:'max',maxPrice:'10.50',currency:'USD',q:'family',limit:'1'});
     const r=await get('?'+q);assert.equal(r.status,200);assert.deepEqual(r.body.items.map(x=>x.id),[ids.valid]);
     q.set('price','free');q.delete('maxPrice');q.delete('currency');
     assert.deepEqual((await get('?'+q)).body.items.map(x=>x.id),[ids.valid]);
@@ -174,8 +178,8 @@ test('price combines with proximity and changing filters restores results', asyn
         await db.query('UPDATE businesses SET latitude=39.7392, longitude=-104.9903 WHERE id=$1',[ids.business]);
         const r=await get('?latitude=39.7392&longitude=-104.9903&radiusMiles=10&price=free&categoryId='+ids.music);
         assert.equal(r.body.count,1);assert.equal(r.body.items[0].id,ids.valid);
-        assert.equal((await get()).body.count,3);
-    } finally { await db.query('UPDATE businesses SET latitude=NULL, longitude=NULL WHERE id=$1',[ids.business]); }
+        assert.equal((await get('?latitude=39.7392&longitude=-104.9903')).body.count,3);
+    } finally { await db.query('UPDATE businesses SET latitude=43.8231, longitude=-111.7924 WHERE id=$1',[ids.business]); }
 });
 test('malformed price requests return structured 400 responses', async () => {
     for(const query of ['?price=cheap','?price=max&maxPrice=-1&currency=USD','?price=max&maxPrice=10','?price=free&maxPrice=0']){
@@ -210,4 +214,38 @@ test('Home today limit returns twelve current/upcoming results and refresh reeva
         const later=await discoverExperiences(db,{window:'today',limit:'12',timeZone:'America/Denver'},'2026-10-29T04:00:00Z',logger);
         assert.equal(later.count,0);
     } finally { for(const id of records)await db.query('DELETE FROM experiences WHERE id=$1',[id]); }
+});
+
+test('multiple category selections use OR, never duplicate experiences, and reject invalid sets', async()=>{
+    const response = await get(`?categoryIds=${ids.food},${ids.music}`);
+    assert.equal(response.status,200);
+    assert.equal(response.body.count,3);
+    assert.equal(new Set(response.body.items.map(x=>x.id)).size,3);
+    assert.equal((await get(`?categoryIds=${ids.food},${ids.food}`)).status,400);
+    assert.equal((await get(`?categoryIds=${ids.food},${randomUUID()}`)).status,400);
+    assert.equal((await get(`?categoryIds=${ids.food}&categoryId=${ids.music}`)).status,400);
+});
+
+test('distance is the default order before limiting, including All dates and ties', async()=>{
+    const venues=[],events=[];
+    try {
+        for (const [title,longitude] of [['A farthest',0.2],['Z nearest',0],['B middle',0.1]]) {
+            const business=randomUUID();venues.push(business);
+            await db.query("INSERT INTO businesses(id,name,address,city,latitude,longitude) VALUES ($1,'Distance fixture venue','1 Main','Fixture',0,$2)",[business,longitude]);
+            events.push(await addExperience(title,{businessId:business}));
+        }
+        const near=await get('?window=all&latitude=0&longitude=0&radiusMiles=25&limit=2');
+        assert.equal(near.status,200);assert.equal(near.body.hasMore,true);
+        assert.deepEqual(near.body.items.map(x=>x.title),['Z nearest','B middle']);
+        assert.equal(near.body.items[0].distanceMiles,0);
+        assert.ok(near.body.items[1].distanceMiles>6 && near.body.items[1].distanceMiles<7);
+    } finally {
+        for (const id of events) await db.query('DELETE FROM experiences WHERE id=$1',[id]);
+        for (const id of venues) await db.query('DELETE FROM businesses WHERE id=$1',[id]);
+    }
+});
+
+test('public discovery requires a location instead of silently returning global results',async()=>{
+    const response=await fetch(url+'?window=all');
+    assert.equal(response.status,400);assert.equal((await response.json()).error.code,'LOCATION_REQUIRED');
 });

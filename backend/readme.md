@@ -1,5 +1,7 @@
 # Hyena App Backend
 
+Current location-only specification: see **../doc/Location_Discovery.md**. Areas and manual Near me have been retired; discovery requires coordinates, sorts by distance, supports multiple categories, and uses local-time display. `npm start` applies migration 003 automatically. Earlier sections below retain development history.
+
 Node.js and Express REST API backed by PostgreSQL hosted on Aiven.
 
 ## Requirements

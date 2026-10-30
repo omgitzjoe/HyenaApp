@@ -2,109 +2,114 @@ package com.example.hyenaapp.ui.components
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
+import android.net.Uri
+import android.os.CancellationSignal
 import android.os.SystemClock
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
-import android.os.CancellationSignal
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.hyenaapp.data.repository.NearbyLocation
+import kotlin.coroutines.resume
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.coroutines.resume
 
+/** One app-level owner; automatically reacquires a fresh foreground fix on resume/refresh. */
 @Composable
-fun NearbyControls(
-    nearby: NearbyLocation?,
-    radiusMiles: Int,
-    onLocationChange: (NearbyLocation?) -> Unit,
-    onRadiusChange: (Int) -> Unit
-) {
+fun LocationTracker(refresh: Int, onLocation: (NearbyLocation?) -> Unit, onMessage: (String) -> Unit) {
     val context = LocalContext.current
+    val owner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
-    var loading by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
+    val latestLocation by rememberUpdatedState(onLocation)
+    val latestMessage by rememberUpdatedState(onMessage)
+    var locating by remember { mutableStateOf(false) }
+    val permitted = {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    }
     val locate: () -> Unit = {
-        scope.launch {
-            loading = true
-            message = null
+        if (!locating) scope.launch {
+            locating = true
+            latestLocation(null)
+            latestMessage("Finding your location…")
             try {
                 val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                val providers = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
-                    .filter { manager.isProviderEnabled(it) }
                 var fix: Location? = null
-                for (provider in providers) {
+                for (provider in listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER).filter { manager.isProviderEnabled(it) }) {
                     fix = withTimeoutOrNull(12000L) {
                         suspendCancellableCoroutine<Location?> { continuation ->
                             val signal = CancellationSignal()
                             continuation.invokeOnCancellation { signal.cancel() }
-                            LocationManagerCompat.getCurrentLocation(
-                                manager, provider, signal, ContextCompat.getMainExecutor(context)
-                            ) { location -> if (continuation.isActive) continuation.resume(location) }
+                            LocationManagerCompat.getCurrentLocation(manager, provider, signal, ContextCompat.getMainExecutor(context)) {
+                                if (continuation.isActive) continuation.resume(it)
+                            }
                         }
                     }
                     if (fix != null && SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos in 0L..120_000_000_000L) break
                     fix = null
                 }
-                onLocationChange(fix?.let { NearbyLocation(it.latitude, it.longitude) })
-                if (fix == null) message = "Location unavailable. Enable phone location, retry, or choose an area."
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                onLocationChange(null)
-                message = "Couldn't get location. Retry or choose an area."
-            } finally {
-                loading = false
-            }
+                latestLocation(fix?.let { NearbyLocation(it.latitude, it.longitude) })
+                latestMessage(if (fix == null) "Location unavailable. Enable phone location, then retry." else "Closest first · distances are approximate · times are local to your phone")
+            } catch (error: CancellationException) { throw error } catch (error: Exception) { latestLocation(null); latestMessage("Couldn't get your location. Check permission and phone location settings.") } finally { locating = false }
         }
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-        if (grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true || grants[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
-            locate()
-        } else {
-            onLocationChange(null)
-            message = "Location permission wasn't granted. Choose an area, or enable permission in app settings."
-        }
+        if (grants.values.any { it }) locate()
+        else { latestLocation(null); latestMessage("Location permission is needed to find nearby experiences. Enable it in app settings.") }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Find experiences near you. Your location is used for this search.")
-        OutlinedButton(enabled = !loading, onClick = {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                locate()
-            } else {
-                permission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
+    LaunchedEffect(refresh) {
+        if (permitted()) locate()
+        else if (refresh == 0) permission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
+        else { latestLocation(null); latestMessage("Enable location permission in app settings.") }
+    }
+    val latestLocate by rememberUpdatedState(locate)
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (permitted()) latestLocate()
+                else { latestLocation(null); latestMessage("Location permission is needed to find nearby experiences.") }
             }
-        }) { Text(if (loading) "Finding location…" else if (nearby == null) "Near me" else "Refresh location") }
-        if (nearby != null) {
-            Text("Within $radiusMiles miles of your captured location. Refresh after moving. Approximate location may affect results.")
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+}
+
+@Composable
+fun LocationControls(location: NearbyLocation?, radius: Int, message: String, onRadius: (Int) -> Unit, onRetry: () -> Unit) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(message)
+        if (location != null) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(5, 10, 25).forEach { miles ->
-                    FilterChip(selected = radiusMiles == miles, onClick = { onRadiusChange(miles) }, label = { Text("$miles mi") })
+                listOf(5, 10, 25, 100).forEach { miles ->
+                    FilterChip(selected = radius == miles, onClick = { onRadius(miles) }, label = { Text("$miles mi") })
                 }
             }
-            TextButton(onClick = { onLocationChange(null) }) { Text("Choose an area instead") }
+        } else if (!message.startsWith("Finding")) {
+            Row {
+                TextButton(onClick = onRetry) { Text("Retry location") }
+                TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))) }) { Text("App settings") }
+            }
         }
-        message?.let { Text(it) }
     }
 }

@@ -1,30 +1,6 @@
-CREATE TABLE discovery_areas (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL CHECK (btrim(name) <> ''),
-    slug TEXT NOT NULL UNIQUE CHECK (btrim(slug) <> ''),
-    postal_codes TEXT[] NOT NULL DEFAULT '{}',
-    time_zone TEXT NOT NULL,
-    latitude NUMERIC(9,6),
-    longitude NUMERIC(9,6),
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT valid_area_coordinates CHECK (
-        (latitude IS NULL AND longitude IS NULL)
-        OR
-        (
-            latitude IS NOT NULL
-            AND longitude IS NOT NULL
-            AND latitude BETWEEN -90 AND 90
-            AND longitude BETWEEN -180 AND 180
-        )
-    )
-);
 CREATE TABLE businesses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    area_id UUID NOT NULL
-        REFERENCES discovery_areas(id) ON DELETE RESTRICT,
+    time_zone TEXT,
     name TEXT NOT NULL CHECK (btrim(name) <> ''),
     description TEXT,
     address TEXT NOT NULL CHECK (btrim(address) <> ''),
@@ -92,6 +68,7 @@ CREATE TABLE experience_schedules (
     start_time TIME WITHOUT TIME ZONE NOT NULL,
     end_time TIME WITHOUT TIME ZONE NOT NULL,
     ends_next_day BOOLEAN NOT NULL DEFAULT FALSE,
+    all_day BOOLEAN NOT NULL DEFAULT FALSE,
     time_zone TEXT NOT NULL CHECK (btrim(time_zone) <> ''),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -102,6 +79,7 @@ CREATE TABLE experience_schedules (
         kind <> 'ONCE'
         OR (end_date IS NOT NULL AND end_date = start_date)
     ),
+    CONSTRAINT valid_all_day CHECK (NOT all_day OR (start_time=TIME '00:00' AND end_time=TIME '23:59' AND ends_next_day=FALSE)),
     CONSTRAINT valid_schedule_times CHECK (
         (ends_next_day = FALSE AND end_time > start_time)
         OR (ends_next_day = TRUE AND end_time <= start_time)
@@ -143,8 +121,8 @@ CREATE TABLE sessions (
         revoked_at IS NULL OR revoked_at >= created_at
     )
 );
-CREATE INDEX idx_businesses_area_active
-ON businesses (area_id, is_active);
+CREATE INDEX idx_businesses_coordinates_active
+ON businesses (latitude, longitude) WHERE is_active = TRUE;
 CREATE INDEX idx_experiences_business_active
 ON experiences (business_id, is_active);
 CREATE INDEX idx_experience_categories_category

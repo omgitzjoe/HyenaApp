@@ -1,7 +1,19 @@
 # Hyena App Software Requirements Specification
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** October 3, 2026
+
+## Location-first requirement update — October 29, 2026
+
+The following requirements supersede earlier area-based requirements and editable time-zone fields. Full behavior and acceptance checks are in [Location_Discovery.md](Location_Discovery.md).
+
+- The system shall request foreground location automatically and display a permission/settings state when unavailable. It shall not require an area or Near me selection.
+- The system shall filter experiences within the chosen radius, order by distance before limiting results, and show approximate distance on preview cards.
+- The system shall allow multiple categories per experience and multiple selected category filters, matching any selected category without duplicate results.
+- The system shall display event instants in the user’s phone-local time without zone identifiers, retaining venue-derived zones internally for daylight-saving correctness.
+- The system shall locate venues by address/coordinates without an area or manually entered time zone, and derive the scheduling zone from venue coordinates.
+- The system shall provide All Day beside Ends next day, using 00:00–23:59 with disabled time inputs and no overnight flag.
+- The system shall preserve existing catalog and review records while migrating away from area storage.
 
 ## Title Page
 
@@ -15,7 +27,7 @@ Joseph Tolley
 
 ### Description of Project
 
-Hyena App is an Android application for finding nearby food specials, local events, and other time-sensitive experiences happening today or tonight. Users select a discovery area, browse curated listings, search and filter results, and optionally create an account to save experiences.
+Hyena App is an Android application for finding nearby food specials, local events, and other time-sensitive experiences happening today or tonight. The app obtains foreground location, shows nearby experiences closest first, supports multiple category and date/price filters, and saves experiences on the phone.
 
 ## Section 1
 

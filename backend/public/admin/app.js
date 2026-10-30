@@ -1,7 +1,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 let authGeneration=0;
-let csrf='',status='PENDING',rows=[],nextCursor=null,selectedId=null,busy=false,categoryNames=new Map(),areaNames=new Map();
+let csrf='',status='PENDING',rows=[],nextCursor=null,selectedId=null,busy=false,categoryNames=new Map();
 function notice(message='',success=false){$('notice').textContent=message;$('notice').classList.toggle('success',success);}
 function element(tag,text,className){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(className)node.className=className;return node;}
 async function api(path,options={}){
@@ -13,7 +13,7 @@ async function api(path,options={}){
 function showLogin(){authGeneration++;csrf='';rows=[];selectedId=null;$('review-view').hidden=true;$('account').hidden=true;$('login-view').hidden=false;$('queue').replaceChildren();$('detail').replaceChildren();}
 function showReview(session){authGeneration++;csrf=session.csrfToken;$('username').textContent=session.username;$('account').hidden=false;$('login-view').hidden=true;$('review-view').hidden=false;}
 async function referenceData(){
-    try{const [categories,areas]=await Promise.all([api('/api/v1/categories'),api('/api/v1/areas')]);categoryNames=new Map(categories.items.map(x=>[x.id,x.name]));areaNames=new Map(areas.items.map(x=>[x.id,x.name]));}
+    try{const categories=await api('/api/v1/categories');categoryNames=new Map(categories.items.map(x=>[x.id,x.name]));}
     catch{notice('Reference names could not load. IDs are shown where needed; refresh to retry.');}
 }
 function tag(state){return element('span',state.toLowerCase(),`tag ${state.toLowerCase()}`);}
@@ -34,26 +34,32 @@ async function select(id){
     const event=row.payload.event,venue=row.payload.venue,proposal=venue.proposal,s=event.schedule;
     const detail=$('detail');detail.replaceChildren(tag(row.status),element('h2',event.title,'detail-title'),element('p',event.description,'event-description'));
     const facts=element('div',undefined,'facts');
-    facts.append(fact('VENUE',proposal?proposal.name+'\n'+proposal.address+', '+proposal.city+'\nProposed venue · '+(areaNames.get(proposal.areaId)||proposal.areaId):row.business?row.business.name+'\n'+row.business.address+', '+row.business.city+(row.business.isActive?'':'\nInactive venue'):venue.businessId+'\nVenue unavailable'));
-    facts.append(fact('VENUE-LOCAL SCHEDULE',s.startDate+' · '+s.startTime+'–'+s.endTime+(s.endsNextDay?' (+1 day)':'')+'\n'+s.timeZone));
+    facts.append(fact('VENUE',proposal?proposal.name+'\n'+proposal.address+', '+proposal.city+'\nProposed venue · '+(proposal.latitude??'Location needed')+', '+(proposal.longitude??''):row.business?row.business.name+'\n'+row.business.address+', '+row.business.city+(row.business.isActive?'':'\nInactive venue'):venue.businessId+'\nVenue unavailable'));
+    facts.append(fact('YOUR LOCAL TIME',row.occurrence?(s.allDay?'All Day at venue · ':'')+new Date(row.occurrence.startsAt).toLocaleString()+' – '+new Date(row.occurrence.endsAt).toLocaleString():'Verify the venue location to preview local times.'));
     facts.append(fact('PRICE',event.priceAmount===null?'Price unknown':event.priceAmount+' '+event.currency),fact('CATEGORIES',event.categoryIds.map(x=>categoryNames.get(x)||x).join(', ')));
     if(event.offer)facts.append(fact('OFFER',event.offer));if(event.requirements)facts.append(fact('REQUIREMENTS',event.requirements));detail.append(facts,element('p','Reference '+row.id,'muted'));
     if(row.status!=='PENDING'){detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.reviewedAt).toLocaleString(),'muted'));if(row.reviewNote)detail.append(fact('REVIEW NOTE',row.reviewNote));if(row.experienceId){const link=element('a','View published API entry');link.href='/api/v1/experiences/'+encodeURIComponent(row.experienceId);link.target='_blank';link.rel='noopener';detail.append(link);}return;}
     const actions=element('div',undefined,'review-actions');actions.append(element('h3','Review decision'));
     const venueSelect=element('select');venueSelect.append(new Option(proposal?'Create proposed venue':'Keep submitted venue',''));
     let latitude,longitude;
+    const needsCoordinates=!!proposal||!row.business||row.business.latitude==null||row.business.longitude==null;
     if(proposal){
-        const label=element('label','Venue match');label.append(venueSelect);actions.append(label,element('p','Check for an existing venue before creating one. New venues without coordinates are excluded from Near me.','muted'));
+        const label=element('label','Venue match');label.append(venueSelect);actions.append(label,element('p','Check for an existing venue before creating one. Verify the coordinates before publishing. The venue location determines its schedule automatically.','muted'));
+    }
+    if(needsCoordinates){
         const coords=element('div',undefined,'coordinates');latitude=element('input');latitude.type='number';latitude.step='any';latitude.min='-90';latitude.max='90';longitude=element('input');longitude.type='number';longitude.step='any';longitude.min='-180';longitude.max='180';
-        const latLabel=element('label','Venue latitude (optional)'),lonLabel=element('label','Venue longitude (optional)');latLabel.append(latitude);lonLabel.append(longitude);coords.append(latLabel,lonLabel);actions.append(coords);
+        latitude.value=proposal?.latitude??'';longitude.value=proposal?.longitude??'';
+        const latLabel=element('label','Venue latitude'),lonLabel=element('label','Venue longitude');latLabel.append(latitude);lonLabel.append(longitude);coords.append(latLabel,lonLabel);actions.append(coords);
+    }
+    if(proposal){
         venueSelect.addEventListener('change',()=>{latitude.disabled=longitude.disabled=!!venueSelect.value;});
-        api('/api/v1/businesses?'+new URLSearchParams({areaId:proposal.areaId})).then(data=>{if(selectedId===id)data.items.forEach(x=>venueSelect.append(new Option(x.name+' · '+x.address,x.id)));}).catch(()=>notice('Venue matches could not load. Refresh before approving a new venue.'));
+        api('/api/v1/businesses?'+new URLSearchParams({q:proposal.name.slice(0,100)})).then(data=>{if(selectedId===id)data.items.forEach(x=>venueSelect.append(new Option(x.name+' · '+x.address,x.id)));}).catch(()=>notice('Venue matches could not load. Refresh before approving a new venue.'));
     }
     const note=element('textarea');note.maxLength=2000;note.placeholder='Required for rejection; optional for approval.';const noteLabel=element('label','Review note');noteLabel.append(note);actions.append(noteLabel);
     const approve=element('button','Approve & publish','primary'),reject=element('button','Reject submission','danger');
     async function decision(action){
         if(busy)return;if(action==='reject'&&!note.value.trim()){notice('Enter a reason before rejecting.');note.focus();return;}
-        const body={note:note.value.trim()};if(action==='approve'&&proposal){if(venueSelect.value)body.businessId=venueSelect.value;else if(latitude.value!==''||longitude.value!==''){if(!latitude.checkValidity()||!longitude.checkValidity()||latitude.value===''||longitude.value===''){notice('Enter valid latitude and longitude together.');return;}body.latitude=Number(latitude.value);body.longitude=Number(longitude.value);}}
+        const body={note:note.value.trim()};if(action==='approve'&&needsCoordinates){if(venueSelect.value)body.businessId=venueSelect.value;else {if(!latitude.checkValidity()||!longitude.checkValidity()||latitude.value===''||longitude.value===''){notice('Enter valid latitude and longitude together.');return;}body.latitude=Number(latitude.value);body.longitude=Number(longitude.value);}}
         busy=true;approve.disabled=reject.disabled=true;
         try{await api('/admin/api/submissions/'+id+'/'+action,{method:'POST',body:JSON.stringify(body)});notice(action==='approve'?'Approved. This experience is now public.':'Submission rejected.',true);busy=false;await loadQueue();}
         catch(error){notice(error.message);}finally{busy=false;approve.disabled=reject.disabled=false;}

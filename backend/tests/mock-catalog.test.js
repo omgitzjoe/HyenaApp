@@ -16,7 +16,7 @@ test('realistic mock catalog covers categories, filters, safe refresh and legacy
         assert.equal(rows.length,225);assert.ok(rows.every(x=>!/^Seed /i.test(x.title)));
         assert.ok(rows.every(x=>x.description.includes('Mock listing')));
         for(const {id,name} of categories){
-            const q={categoryId:id,window:'today',timeZone:'America/Denver',limit:'100'};
+            const q={latitude:'43.8231',longitude:'-111.7924',radiusMiles:'100',categoryId:id,window:'today',timeZone:'America/Denver',limit:'100'};
             assert.ok((await discoverExperiences(db,q,now)).count>0,name+' Today');
             assert.ok((await discoverExperiences(db,{...q,window:'now'},now)).count>0,name+' Now');
             assert.ok((await discoverExperiences(db,{...q,price:'free'},now)).count>0,name+' Free');
