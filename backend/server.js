@@ -5,7 +5,6 @@ const healthRoutes = require("./routes/health");
 const createExperienceRouter = require("./routes/experiences");
 const pool = require("./db");
 const createCategoryRouter = require("./routes/categories");
-const areaRoutes = require("./routes/areas");
 const createSubmissionRouter = require("./routes/submissions");
 const createBusinessRouter = require("./routes/businesses");
 const { createAdminRouter } = require("./routes/admin");
@@ -24,7 +23,7 @@ app.get("/", (req, res) => res.json({
 app.use("/health", healthRoutes);
 app.use("/api/v1/experiences", createExperienceRouter({ pool }));
 app.use("/api/v1/categories", createCategoryRouter({ pool }));
-app.use("/api/v1/areas", areaRoutes);
+app.get("/api/v1/areas", (req, res) => res.status(410).json({ error: { code: "AREAS_REMOVED", message: "Use location coordinates for discovery." } }));
 app.use("/api/v1/curator", curatorRoutes);
 app.use("/api/v1/businesses", createBusinessRouter({ pool }));
 app.use("/api/v1/submissions", createSubmissionRouter({ pool }));

@@ -4,7 +4,7 @@ All 225 experiences and 50 venues are fictional. Descriptions identify them as m
 
 ## Update the existing database
 
-Run **refresh_mock_catalog.sql** as an entire script in DBeaver. It is transactional, preserves existing catalog IDs, and updates only the known demo catalog and its schedule/category relationships. It does not modify users or sessions or delete unrelated listings. Friendly category-name collisions preserve the unrelated category and give the mock category a Demo suffix. No schema migration is required.
+Run **refresh_mock_catalog.sql** as an entire script in DBeaver. It is transactional, preserves existing catalog IDs, and updates only the known demo catalog and its schedule/category relationships. It does not modify users or sessions or delete unrelated listings. Friendly category-name collisions preserve the unrelated category and give the mock category a Demo suffix. Apply migration 003 first using `npm run migrate` (or `npm start`); existing databases must not recreate the initial schema. The catalog no longer has areas, includes many-to-many category combinations, and uses All Day flags.
 
 Use **sample_data.sql** only for the complete fixture setup on a fresh development/test database; it also upserts public demo users and sessions. Do not copy those fixtures into real authentication workflows.
 

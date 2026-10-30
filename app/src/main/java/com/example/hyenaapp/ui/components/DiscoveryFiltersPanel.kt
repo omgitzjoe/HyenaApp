@@ -58,9 +58,8 @@ fun DiscoveryFiltersPanel(
         failure = null
         try {
             categories = ApiClient.api.getCategories().items
-            if (latestFilters.categoryId != null && categories.none { it.id == latestFilters.categoryId }) {
-                latestChange(latestFilters.copy(categoryId = null))
-            }
+            val valid = latestFilters.categoryIds.filter { id -> categories.any { it.id == id } }
+            if (valid != latestFilters.categoryIds) latestChange(latestFilters.copy(categoryIds = valid))
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -84,9 +83,9 @@ fun DiscoveryFiltersPanel(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilterChip(selected = filters.categoryId == null, onClick = { onFiltersChange(filters.copy(categoryId = null)) }, label = { Text("All categories") })
+            FilterChip(selected = filters.categoryIds.isEmpty(), onClick = { onFiltersChange(filters.copy(categoryIds = emptyList())) }, label = { Text("All categories") })
             categories.forEach { category ->
-                FilterChip(selected = filters.categoryId == category.id, onClick = { onFiltersChange(filters.copy(categoryId = category.id)) }, label = { Text(category.name) })
+                FilterChip(selected = category.id in filters.categoryIds, onClick = { onFiltersChange(filters.copy(categoryIds = if (category.id in filters.categoryIds) filters.categoryIds - category.id else filters.categoryIds + category.id)) }, label = { Text(category.name) })
             }
         }
         if (failure != null) {

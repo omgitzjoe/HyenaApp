@@ -1,10 +1,14 @@
 # Hyena App Software Design Description
-**Version:** 0.8 — Working design
+**Version:** 0.9 — Working design
 
 **Date:** October 28, 2026
 
 **Project owner:** Joseph Tolley  
 **Intended repository path:** `doc/Hyena_App_SDD.md`
+
+## Current implementation update — October 29, 2026
+
+[Location_Discovery.md](Location_Discovery.md) supersedes earlier area selection, optional Near me, single-category filtering, and editable venue-zone designs. Discovery is location-based and sorted by distance; categories are many to many and selectable in groups. Venue coordinates derive zones internally, schedules display locally without zone names, and All Day uses 00:00–23:59. Migration 003 upgrades existing data automatically at startup. Earlier target architecture below remains historical where it conflicts with this update.
 
 ## 1 Introduction
 

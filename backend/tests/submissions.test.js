@@ -31,8 +31,7 @@ before(async()=>{
  // Apply twice to ensure the migration is repeat-safe.
  await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations/002_event_submissions.sql'),'utf8'));
  ids.area=randomUUID();ids.business=randomUUID();ids.category=randomUUID();ids.closed=randomUUID();
- await db.query("INSERT INTO discovery_areas(id,name,slug,time_zone) VALUES ($1,'Test area','test-area','America/Denver')",[ids.area]);
- await db.query("INSERT INTO businesses(id,area_id,name,address,city,is_active) VALUES ($1,$2,'Open Studio','1 Test St','Rexburg',TRUE),($3,$2,'Closed Studio','2 Test St','Rexburg',FALSE)",[ids.business,ids.area,ids.closed]);
+ await db.query("INSERT INTO businesses(id,name,address,city,is_active,latitude,longitude) VALUES ($1,'Open Studio','1 Test St','Rexburg',TRUE,43.8231,-111.7924),($2,'Closed Studio','2 Test St','Rexburg',FALSE,43.8231,-111.7924)",[ids.business,ids.closed]);
  await db.query("INSERT INTO categories(id,name,slug) VALUES ($1,'Arts','arts')",[ids.category]);
  let lock=Promise.resolve();
  pool={query:(...args)=>db.query(...args),async connect(){let release;const old=lock;lock=new Promise(r=>release=r);await old;return {query:(...args)=>db.query(...args),release};}};
@@ -54,7 +53,7 @@ after(async()=>{if(server)await new Promise(r=>server.close(r));if(db)await db.c
 test('valid submissions are pending and never create public experiences',async()=>{
  const before=(await db.query('SELECT count(*)::int AS n FROM experiences')).rows[0].n;
  const item=await submit();assert.equal(item.status,'PENDING');
- assert.equal((await request('/api/v1/experiences?window=all')).body.count,0);
+ assert.equal((await request('/api/v1/experiences?window=all&latitude=43.8231&longitude=-111.7924&radiusMiles=100')).body.count,0);
  assert.equal((await db.query('SELECT count(*)::int AS n FROM experiences')).rows[0].n,before);
 });
 test('identical retries are idempotent and conflicting request reuse returns 409',async()=>{
@@ -80,10 +79,10 @@ test('public endpoint rejects expired events, invalid references and inactive ve
 });
 test('overnight one-time event can be submitted',async()=>{const body=event();body.event.schedule.startTime='23:00';body.event.schedule.endTime='01:00';body.event.schedule.endsNextDay=true;await submit(body);});
 test('public submission throttling returns 429',async()=>{assert.equal((await request('/limited',event())).status,201);assert.equal((await request('/limited',event())).status,429);});
-test('venue search includes active venue fields and rejects missing area',async()=>{
- const r=await request('/api/v1/businesses?areaId='+ids.area);assert.equal(r.status,200);assert.equal(r.body.items.length,1);assert.equal(r.body.items[0].timeZone,'America/Denver');
- assert.equal((await request('/api/v1/businesses')).status,400);
- assert.equal((await request('/api/v1/businesses?areaId='+ids.area+'&q='+encodeURIComponent('%'))).body.items.length,0);
+test('venue search orders located active venues and rejects incomplete coordinates',async()=>{
+ const r=await request('/api/v1/businesses?latitude=43.8231&longitude=-111.7924');assert.equal(r.status,200);assert.equal(r.body.items.length,1);assert.equal(r.body.items[0].timeZone,'America/Boise');
+ assert.equal((await request('/api/v1/businesses?latitude=43')).status,400);
+ assert.equal((await request('/api/v1/businesses?q='+encodeURIComponent('%'))).body.items.length,0);
 });
 test('queue requires sign-in; wrong password and wrong-origin login are rejected',async()=>{
  assert.equal((await request('/admin/api/submissions')).status,401);
@@ -120,19 +119,19 @@ test('rejection needs a reason, does not publish, and cannot later be approved',
  assert.equal((await request('/admin/api/submissions/'+item.id+'/approve',{},true)).status,409);
 });
 test('approval creates a proposed venue with coordinates atomically',async()=>{
- const item=await submit(event({proposal:{areaId:ids.area,name:'New Workshop Room',address:'10 Workshop Lane',city:'Rexburg'}}));
+ const item=await submit(event({proposal:{latitude:43.8231,longitude:-111.7924,name:'New Workshop Room',address:'10 Workshop Lane',city:'Rexburg'}}));
  const r=await request('/admin/api/submissions/'+item.id+'/approve',{latitude:43.8231,longitude:-111.7924},true);assert.equal(r.status,200);
  const venue=(await db.query('SELECT b.* FROM businesses b JOIN experiences e ON e.business_id=b.id WHERE e.id=$1',[r.body.item.experienceId])).rows[0];assert.equal(venue.name,'New Workshop Room');assert.equal(Number(venue.latitude),43.8231);
 });
 test('approval can match a proposed venue to an existing venue',async()=>{
- const item=await submit(event({proposal:{areaId:ids.area,name:'Open Studio alternate name',address:'1 Test St',city:'Rexburg'}}));
+ const item=await submit(event({proposal:{latitude:43.8231,longitude:-111.7924,name:'Open Studio alternate name',address:'1 Test St',city:'Rexburg'}}));
  const before=(await db.query('SELECT count(*)::int AS n FROM businesses')).rows[0].n;
  const r=await request('/admin/api/submissions/'+item.id+'/approve',{businessId:ids.business},true);assert.equal(r.status,200);
  assert.equal((await db.query('SELECT count(*)::int AS n FROM businesses')).rows[0].n,before);
 });
 test('invalid categories at approval roll back proposed venue creation',async()=>{
  const category=randomUUID();await db.query("INSERT INTO categories(id,name,slug) VALUES ($1,'Temporary','temporary')",[category]);
- const body=event({proposal:{areaId:ids.area,name:'Must roll back',address:'11 Workshop Lane',city:'Rexburg'}});body.event.categoryIds=[category];const item=await submit(body);
+ const body=event({proposal:{latitude:43.8231,longitude:-111.7924,name:'Must roll back',address:'11 Workshop Lane',city:'Rexburg'}});body.event.categoryIds=[category];const item=await submit(body);
  await db.query('DELETE FROM categories WHERE id=$1',[category]);
  const r=await request('/admin/api/submissions/'+item.id+'/approve',{},true);assert.equal(r.status,400);
  assert.equal((await db.query("SELECT count(*)::int AS n FROM businesses WHERE name='Must roll back'")).rows[0].n,0);
@@ -197,4 +196,36 @@ test('existing curator creation still requires its key and uses the same publish
  assert.equal((await request('/api/v1/experiences/'+result.body.item.id)).status,200);
  const invalid={...body,businessId:ids.closed};
  assert.equal((await request('/api/v1/curator/experiences',invalid,false,{Authorization:'Bearer '+curatorKey})).status,400);
+});
+
+test('new venue coordinates derive the zone; All Day normalizes times and publishes all category links',async()=>{
+ const second=randomUUID();await db.query("INSERT INTO categories(id,name,slug) VALUES ($1,'Community','community-location-test')",[second]);
+ const body=event({proposal:{latitude:40.7128,longitude:-74.006,name:'New York Workshop',address:'5 Mock Lane',city:'New York'}});
+ body.event.categoryIds.push(second);body.event.schedule.timeZone='Asia/Tokyo';body.event.schedule.allDay=true;
+ body.event.schedule.startTime='19:00';body.event.schedule.endTime='01:00';body.event.schedule.endsNextDay=true;
+ const item=await submit(body);
+ const pending=(await db.query('SELECT payload FROM event_submissions WHERE id=$1',[item.id])).rows[0].payload;
+ assert.equal(pending.event.schedule.timeZone,'America/New_York');assert.equal(pending.event.schedule.startTime,'00:00:00');assert.equal(pending.event.schedule.endTime,'23:59:00');assert.equal(pending.event.schedule.endsNextDay,false);
+ const approved=await request('/admin/api/submissions/'+item.id+'/approve',{},true);assert.equal(approved.status,200,JSON.stringify(approved.body));
+ const schedule=(await db.query('SELECT * FROM experience_schedules WHERE experience_id=$1',[approved.body.item.experienceId])).rows[0];
+ assert.equal(schedule.all_day,true);assert.equal(schedule.time_zone,'America/New_York');assert.equal(schedule.end_time,'23:59:00');
+ assert.equal((await db.query('SELECT count(*)::int AS n FROM experience_categories WHERE experience_id=$1',[approved.body.item.experienceId])).rows[0].n,2);
+});
+
+test('new venue needs coordinates and submission schedules may omit timeZone',async()=>{
+ const body=event();delete body.event.schedule.timeZone;
+ const result=await submit(body);assert.equal(result.status,'PENDING');
+ const bad=event({proposal:{name:'Missing location',address:'1 Main',city:'Rexburg'}});
+ assert.equal((await request('/api/v1/submissions',bad)).status,400);
+ for (const coordinates of [{latitude:91,longitude:0},{latitude:0,longitude:-181}]) {
+  bad.venue.proposal={...bad.venue.proposal,...coordinates};assert.equal((await request('/api/v1/submissions',bad)).status,400);
+ }
+});
+
+test('legacy queued venues need a verified location before approval and can supply it in review',async()=>{
+ const body=event({proposal:{latitude:43.8231,longitude:-111.7924,name:'Legacy queued studio',address:'10 Main',city:'Rexburg'}});
+ const item=await submit(body);
+ await db.query("UPDATE event_submissions SET payload=payload #- '{venue,proposal,latitude}' #- '{venue,proposal,longitude}' WHERE id=$1",[item.id]);
+ assert.equal((await request('/admin/api/submissions/'+item.id+'/approve',{},true)).status,400);
+ assert.equal((await request('/admin/api/submissions/'+item.id+'/approve',{latitude:43.8231,longitude:-111.7924},true)).status,200);
 });

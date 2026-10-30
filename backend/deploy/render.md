@@ -2,6 +2,10 @@
 
 The service is deployed at https://hyena-api-np3j.onrender.com/ (reported connected by the project owner). PostgreSQL stays on Aiven. The Android app connects to Render over HTTPS. Your computer is needed for development, not for serving requests once deployment is verified.
 
+## Current discovery update
+
+`npm start` now tracks migrations 002/003 and upgrades existing Aiven data automatically. No new environment variables are required. Do not rerun initial_schema.sql. Rebuild Android from master; older builds with area selectors are no longer compatible with discovery. API smoke tests must include latitude/longitude, for example `/api/v1/experiences?latitude=43.8231&longitude=-111.7924&window=all`. See doc/Location_Discovery.md.
+
 ## 1. Refresh the mock catalog
 
 Pull `master`, then run **backend/db/seeds/refresh_mock_catalog.sql** as an entire script in DBeaver against the existing Aiven database. Do not use sample_data.sql for this update: the full file also refreshes public demo accounts and sessions. The catalog-only script is transactional and updates only the known demo catalog IDs. It preserves IDs and does not delete users, sessions, or unrelated listings.

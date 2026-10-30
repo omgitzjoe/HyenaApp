@@ -79,7 +79,7 @@ test('one invalid zone does not break the feed', () => {
     const r=evaluateCandidates([{...base,id:'invalid',timeZone:'Not/AZone'},base],filters(),now,id=>warnings.push(id));
     assert.equal(r.count,1); assert.deepEqual(warnings,['invalid']);
 });
-test('query defaults and trimming',()=>assert.deepEqual(parseDiscoveryQuery({q:' music '}),{search:'music',window:'today',date:null,timeZone:null,proximity:null,limit:20,areaId:null,categoryId:null,priceMode:"any",maxPrice:null,currency:null}));
+test('query defaults and trimming',()=>assert.deepEqual(parseDiscoveryQuery({q:' music '}),{search:'music',window:'today',date:null,timeZone:null,proximity:null,limit:20,categoryIds:[],categoryId:null,priceMode:"any",maxPrice:null,currency:null}));
 for (const [name,query] of Object.entries({
     'invalid window':{window:'year'}, 'window array':{window:['today']}, 'missing selected date':{window:'date'},
     'invalid calendar date':{window:'date',date:'2026-02-30'}, 'date without date window':{date:'2026-10-28'},

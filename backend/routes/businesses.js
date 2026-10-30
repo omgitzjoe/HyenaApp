@@ -1,19 +1,23 @@
-const express=require('express');
-const {z}=require('zod');
-const querySchema=z.strictObject({areaId:z.uuid(),q:z.string().trim().max(100).default('')});
+const express = require('express');
+const { z } = require('zod');
+const { distanceMiles, venueTimeZone } = require('../services/venueLocation');
+const coordinate = (min, max) => z.string().trim().min(1).transform(Number).pipe(z.number().finite().min(min).max(max));
+const querySchema = z.strictObject({q:z.string().trim().max(100).default(''),latitude:coordinate(-90,90).optional(),longitude:coordinate(-180,180).optional()})
+    .refine(x => (x.latitude === undefined) === (x.longitude === undefined));
 function createBusinessRouter({pool,logger=console}) {
-    const router=express.Router();
+    const router = express.Router();
     router.get('/',async(req,res)=>{
-        const parsed=querySchema.safeParse(req.query);
-        if(!parsed.success)return res.status(400).json({error:{code:'INVALID_VENUE_SEARCH',message:'Choose an area and a search of at most 100 characters.'}});
-        const pattern='%'+parsed.data.q.replace(/[\\%_]/g,'\\$&')+'%';
-        try{
-            const result=await pool.query(`SELECT b.id,b.name,b.address,b.city,a.time_zone AS "timeZone"
-                FROM businesses b JOIN discovery_areas a ON a.id=b.area_id
-                WHERE b.is_active AND a.is_active AND a.id=$1 AND b.name ILIKE $2 ORDER BY b.name,b.id LIMIT 51`,[parsed.data.areaId,pattern]);
-            res.json({items:result.rows.slice(0,50),hasMore:result.rows.length>50});
-        }catch(error){logger.error('Venue search failed:',error.message);res.status(500).json({error:{code:'VENUES_FAILED',message:'Unable to load venues.'}});}
+        const parsed = querySchema.safeParse(req.query);
+        if(!parsed.success)return res.status(400).json({error:{code:'INVALID_VENUE_SEARCH',message:'Provide a search and valid location coordinates.'}});
+        const pattern = '%'+parsed.data.q.replace(/[\\%_]/g,'\\$&')+'%';
+        try {
+            const result = await pool.query(`SELECT id,name,address,city,latitude,longitude FROM businesses
+                WHERE is_active AND latitude IS NOT NULL AND longitude IS NOT NULL AND name ILIKE $1 ORDER BY name,id`,[pattern]);
+            const items = result.rows.map(row=>({...row,timeZone:venueTimeZone(row),...(parsed.data.latitude!==undefined?{distanceMiles:distanceMiles(parsed.data,row)}:{})}));
+            if(parsed.data.latitude!==undefined)items.sort((a,b)=>a.distanceMiles-b.distanceMiles||a.id.localeCompare(b.id));
+            res.json({items:items.slice(0,50),hasMore:items.length>50});
+        } catch(error) {logger.error('Venue search failed:',error.message);res.status(500).json({error:{code:'VENUES_FAILED',message:'Unable to load venues.'}});}
     });
     return router;
 }
-module.exports=createBusinessRouter;
+module.exports = createBusinessRouter;

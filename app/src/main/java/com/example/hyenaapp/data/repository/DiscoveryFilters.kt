@@ -3,7 +3,7 @@ package com.example.hyenaapp.data.repository
 /** Shared visitor choices; coordinates are kept separately in memory. */
 data class DiscoveryFilters(
     val query: String = "",
-    val categoryId: String? = null,
+    val categoryIds: List<String> = emptyList(),
     val window: String = "today",
     val date: String? = null,
     val priceMode: String = "any",

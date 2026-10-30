@@ -22,21 +22,18 @@ import com.example.hyenaapp.data.repository.NearbyLocation
 import com.example.hyenaapp.data.repository.DiscoveryFilters
 import com.example.hyenaapp.domain.model.Experience
 import com.example.hyenaapp.ui.components.ExperienceCard
-import com.example.hyenaapp.ui.components.DiscoveryAreaPicker
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
 
 @Composable
 fun ExploreScreen(
     modifier: Modifier = Modifier,
-    selectedAreaId: String? = null,
     nearby: NearbyLocation? = null,
     radiusMiles: Int = 10,
     timeZone: String = java.time.ZoneId.systemDefault().id,
     locationControls: @Composable () -> Unit = {},
     filters: DiscoveryFilters = DiscoveryFilters(),
     filterControls: @Composable () -> Unit = {},
-    onAreaChange: (String?) -> Unit = {},
     savedIds: Set<String> = emptySet(),
     savingEnabled: Boolean = true,
     onToggleSave: (Experience) -> Unit = {},
@@ -51,7 +48,8 @@ fun ExploreScreen(
 
     val query = filters.query.trim()
 
-    LaunchedEffect(filters, selectedAreaId, nearby, radiusMiles, timeZone, reloadKey) {
+    LaunchedEffect(filters, nearby, radiusMiles, timeZone, reloadKey) {
+        if (nearby == null) { experiences = emptyList(); isLoading = false; errorMessage = null; return@LaunchedEffect }
         isLoading = true
         errorMessage = null
 
@@ -60,7 +58,7 @@ fun ExploreScreen(
                 delay(300)
             }
 
-            experiences = ExperienceRepository.getExperiences(query, filters.window, selectedAreaId, timeZone, nearby, radiusMiles, filters)
+            experiences = ExperienceRepository.getExperiences(query, filters.window, timeZone, nearby, radiusMiles, filters)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -87,11 +85,9 @@ fun ExploreScreen(
 
         item { locationControls() }
 
-        if (nearby == null) {
-            item { DiscoveryAreaPicker(selectedAreaId = selectedAreaId, onAreaChange = onAreaChange) }
-        }
 
         when {
+            nearby == null -> item { Text("Enable location to discover experiences around you.") }
             isLoading -> {
                 item {
                     CircularProgressIndicator()
@@ -130,7 +126,7 @@ fun ExploreScreen(
                     ExperienceCard(
                         title = experience.title,
                         businessName = experience.businessName,
-                        schedule = experience.schedule,
+                        schedule = experience.schedule, distanceMiles = experience.distanceMiles,
                         offer = experience.offer,
                         onClick = { onExperienceClick(experience) },
                         isSaved = experience.id in savedIds,

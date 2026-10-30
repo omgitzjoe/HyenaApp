@@ -7,5 +7,8 @@ data class Experience(
     val schedule: String,
     val offer: String,
     val occurrenceStart: String? = null,
-    val occurrenceEnd: String? = null
+    val occurrenceEnd: String? = null,
+    val distanceMiles: Double? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null
 )

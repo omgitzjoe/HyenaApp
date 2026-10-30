@@ -37,7 +37,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.remote.ApiClient
-import com.example.hyenaapp.data.remote.AreaDto
+import com.example.hyenaapp.data.repository.NearbyLocation
+import android.location.Geocoder
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.Locale
 import com.example.hyenaapp.data.remote.BusinessDto
 import com.example.hyenaapp.data.remote.CategoryDto
 import com.example.hyenaapp.data.remote.EventSubmissionRequest
@@ -60,12 +65,12 @@ import retrofit2.HttpException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SubmitEventScreen(initialAreaId: String? = null, onDone: () -> Unit) {
+fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var title by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
-    var areaId by rememberSaveable { mutableStateOf(initialAreaId.orEmpty()) }
-    var categoryId by rememberSaveable { mutableStateOf("") }
+    var categoryIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var proposed by rememberSaveable { mutableStateOf(false) }
     var businessId by rememberSaveable { mutableStateOf("") }
     var businessName by rememberSaveable { mutableStateOf("") }
@@ -73,6 +78,10 @@ fun SubmitEventScreen(initialAreaId: String? = null, onDone: () -> Unit) {
     var venueName by rememberSaveable { mutableStateOf("") }
     var address by rememberSaveable { mutableStateOf("") }
     var city by rememberSaveable { mutableStateOf("") }
+    var latitude by rememberSaveable { mutableStateOf("") }
+    var longitude by rememberSaveable { mutableStateOf("") }
+    var resolving by remember { mutableStateOf(false) }
+    var allDay by rememberSaveable { mutableStateOf(false) }
     var unknownPrice by rememberSaveable { mutableStateOf(true) }
     var price by rememberSaveable { mutableStateOf("") }
     var offer by rememberSaveable { mutableStateOf("") }
@@ -82,12 +91,9 @@ fun SubmitEventScreen(initialAreaId: String? = null, onDone: () -> Unit) {
     var startTime by rememberSaveable { mutableStateOf("18:00") }
     var endTime by rememberSaveable { mutableStateOf("20:00") }
     var endsNextDay by rememberSaveable { mutableStateOf(false) }
-    var zoneInitialized by rememberSaveable { mutableStateOf(false) }
-    var timeZone by rememberSaveable { mutableStateOf(ZoneId.systemDefault().id) }
     var requestId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var receiptId by rememberSaveable { mutableStateOf<String?>(null) }
     var receiptStatus by rememberSaveable { mutableStateOf("") }
-    var areas by remember { mutableStateOf<List<AreaDto>>(emptyList()) }
     var categories by remember { mutableStateOf<List<CategoryDto>>(emptyList()) }
     var businesses by remember { mutableStateOf<List<BusinessDto>>(emptyList()) }
     var hasMoreBusinesses by remember { mutableStateOf(false) }
@@ -100,48 +106,35 @@ fun SubmitEventScreen(initialAreaId: String? = null, onDone: () -> Unit) {
     var reload by remember { mutableStateOf(0) }
     var showDate by remember { mutableStateOf(false) }
     fun edited() { requestId = UUID.randomUUID().toString(); message = null }
-    fun venueZone(value: String) {
-        timeZone = value
-        zoneInitialized = true
-        if (!dateTouched) {
-            try {
-                val local = ZonedDateTime.now(ZoneId.of(value))
-                date = (if (local.toLocalTime() >= LocalTime.of(20, 0)) local.toLocalDate().plusDays(1) else local.toLocalDate()).toString()
-            } catch (_: Exception) { /* Keep the user's date while a zone is being typed. */ }
-        }
-    }
-
     LaunchedEffect(reload) {
         loading = true
         referenceError = null
-        try {
-            areas = ApiClient.api.getAreas().items
-            categories = ApiClient.api.getCategories().items
-            if (areas.none { it.id == areaId }) {
-                areaId = areas.firstOrNull()?.id.orEmpty()
-                venueZone(areas.firstOrNull()?.timeZone ?: ZoneId.systemDefault().id)
-                businessId = ""
-                edited()
-            }
-            if (!zoneInitialized && areaId.isNotBlank()) {
-                venueZone(areas.first { it.id == areaId }.timeZone)
-            }
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (error: Exception) { referenceError = "Couldn't load areas and categories. Check the API and retry." }
-        finally { loading = false }
+        try { categories = ApiClient.api.getCategories().items } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { referenceError = "Couldn't load categories. Check your connection and retry." } finally { loading = false }
     }
-    LaunchedEffect(areaId, venueQuery, reload) {
-        if (areaId.isBlank()) return@LaunchedEffect
+    LaunchedEffect(nearby, venueQuery, reload) {
+        if (nearby == null) { businesses = emptyList(); return@LaunchedEffect }
         venueLoading = true
         venueError = null
         try {
             if (venueQuery.isNotBlank()) delay(300)
-            val response = ApiClient.api.getBusinesses(areaId, venueQuery.trim())
+            val response = ApiClient.api.getBusinesses(venueQuery.trim(), nearby.latitude, nearby.longitude)
             businesses = response.items
             hasMoreBusinesses = response.hasMore
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (error: Exception) { venueError = "Couldn't load venues. Retry, or propose a new venue."; businesses = emptyList() }
-        finally { venueLoading = false }
+        } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { venueError = "Couldn't load venues. Retry, or propose a new venue."; businesses = emptyList() } finally { venueLoading = false }
+    }
+    fun resolveAddress() {
+        resolving = true
+        message = null
+        scope.launch {
+            try {
+                val found = withContext(Dispatchers.IO) {
+                    @Suppress("DEPRECATION")
+                    Geocoder(context, Locale.getDefault()).getFromLocationName("$address, $city", 1)?.firstOrNull()
+                }
+                if (found == null) message = "Address not found. Check it or enter the venue coordinates."
+                else { latitude = found.latitude.toString(); longitude = found.longitude.toString(); edited() }
+            } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { message = "Address lookup unavailable. Enter coordinates or use your position if you are at the venue." } finally { resolving = false }
+        }
     }
     BackHandler {
         if (submitting) message = "Your submission is sending. Please wait for confirmation." else onDone()
@@ -152,21 +145,20 @@ fun SubmitEventScreen(initialAreaId: String? = null, onDone: () -> Unit) {
         val problem = when {
             title.isBlank() -> "Enter an event title."
             description.isBlank() -> "Describe the event."
-            categoryId.isBlank() -> "Choose a category."
-            areaId.isBlank() -> "Choose a discovery area."
+            categoryIds.isEmpty() -> "Choose a category."
             !proposed && businessId.isBlank() -> "Choose an existing venue or propose a new one."
             proposed && (venueName.isBlank() || address.isBlank() || city.isBlank()) -> "Enter the proposed venue name, address, and city."
+            proposed && (latitude.toDoubleOrNull()?.let { it.isFinite() && it in -90.0..90.0 } != true || longitude.toDoubleOrNull()?.let { it.isFinite() && it in -180.0..180.0 } != true) -> "Locate the venue or enter valid latitude and longitude."
             !unknownPrice && !Regex("(0|[1-9]\\d{0,7})(\\.\\d{1,2})?").matches(price.trim()) -> "Enter a nonnegative USD price with up to two decimal places, or choose Price unknown."
-            !Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(startTime) || !Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(endTime) -> "Use 24-hour times such as 18:00 and 20:00."
-            (if (endsNextDay) endTime > startTime else endTime <= startTime) -> "Check the end time and Ends next day option."
+            !allDay && (!Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(startTime) || !Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(endTime)) -> "Use 24-hour times such as 18:00 and 20:00."
+            (!allDay && (if (endsNextDay) endTime > startTime else endTime <= startTime)) -> "Check the end time and Ends next day option."
             else -> null
         }
         if (problem != null) { message = problem; return }
-        try { ZoneId.of(timeZone.trim()) } catch (_: Exception) { message = "Use a named time zone such as America/Denver."; return }
-        val venue = if (proposed) SubmissionVenue(proposal = VenueProposal(areaId, venueName.trim(), address.trim(), city.trim())) else SubmissionVenue(businessId = businessId)
+        val venue = if (proposed) SubmissionVenue(proposal = VenueProposal(latitude.toDouble(), longitude.toDouble(), venueName.trim(), address.trim(), city.trim())) else SubmissionVenue(businessId = businessId)
         val body = EventSubmissionRequest(requestId, venue, SubmittedEvent(
-            title.trim(), description.trim(), listOf(categoryId),
-            SubmissionSchedule(date, date, startTime, endTime, endsNextDay, timeZone.trim()),
+            title.trim(), description.trim(), categoryIds.toList(),
+            SubmissionSchedule(date, date, if (allDay) "00:00" else startTime, if (allDay) "23:59" else endTime, if (allDay) false else endsNextDay, allDay),
             if (unknownPrice) null else price.trim(), if (unknownPrice) null else "USD",
             offer.trim().takeIf { it.isNotEmpty() }, requirements.trim().takeIf { it.isNotEmpty() }
         ))
@@ -177,9 +169,7 @@ fun SubmitEventScreen(initialAreaId: String? = null, onDone: () -> Unit) {
                 val receipt = ApiClient.api.submitEvent(body).item
                 receiptId = receipt.id
                 receiptStatus = receipt.status
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { message = submissionError(error) }
-            finally { submitting = false }
+            } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { message = submissionError(error) } finally { submitting = false }
         }
     }
 
@@ -196,7 +186,7 @@ fun SubmitEventScreen(initialAreaId: String? = null, onDone: () -> Unit) {
             item { OutlinedButton(onClick = {
                 receiptId = null; title = ""; description = ""; price = ""; unknownPrice = true
                 offer = ""; requirements = ""; businessId = ""; businessName = ""; venueName = ""; address = ""; city = ""
-                dateTouched = false; venueZone(timeZone); requestId = UUID.randomUUID().toString(); message = null
+                dateTouched = false; latitude = ""; longitude = ""; allDay = false; requestId = UUID.randomUUID().toString(); message = null
             }) { Text("Submit another event") } }
         } else {
             item { Text("One-time events are reviewed before publishing. Please check the venue, price, and schedule.") }
@@ -204,16 +194,13 @@ fun SubmitEventScreen(initialAreaId: String? = null, onDone: () -> Unit) {
             if (referenceError != null) item { Text(referenceError.orEmpty()); Button(onClick = { reload++ }) { Text("Retry reference data") } }
             item { Entry("Event title", title, 200, !submitting) { title = it; edited() } }
             item { Entry("Description", description, 10000, !submitting, multiline = true) { description = it; edited() } }
-            item { Text("Category", style = MaterialTheme.typography.titleMedium) }
+            item { Text("Categories (choose one or more)", style = MaterialTheme.typography.titleMedium) }
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    categories.forEach { category -> FilterChip(selected = categoryId == category.id, onClick = { categoryId = category.id; edited() }, enabled = !submitting, label = { Text(category.name) }) }
+                    categories.forEach { category -> FilterChip(selected = category.id in categoryIds, onClick = { categoryIds = ArrayList(if (category.id in categoryIds) categoryIds - category.id else categoryIds + category.id); edited() }, enabled = !submitting, label = { Text(category.name) }) }
                 }
                 if (!loading && categories.isEmpty()) Text("No categories available. Ask the administrator to add categories.")
             }
-            item { Choice("Area", areas.firstOrNull { it.id == areaId }?.name ?: "Choose an area", areas.map { it.id to it.name }, !submitting && !loading) { id ->
-                areaId = id; businessId = ""; businessName = ""; areas.firstOrNull { it.id == id }?.let { venueZone(it.timeZone) }; edited()
-            } }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = !proposed, onClick = { proposed = false; edited() }, enabled = !submitting, label = { Text("Existing venue") })
@@ -222,32 +209,38 @@ fun SubmitEventScreen(initialAreaId: String? = null, onDone: () -> Unit) {
             }
             if (proposed) {
                 item { Entry("Venue name", venueName, 200, !submitting) { venueName = it; edited() } }
-                item { Entry("Street address", address, 300, !submitting) { address = it; edited() } }
-                item { Entry("City", city, 100, !submitting) { city = it; edited() } }
-                item { Text("The administrator will verify the proposed venue before publishing.") }
+                item { Entry("Street address", address, 300, !submitting && !resolving) { address = it; latitude = ""; longitude = ""; edited() } }
+                item { Entry("City", city, 100, !submitting && !resolving) { city = it; latitude = ""; longitude = ""; edited() } }
+                item { OutlinedButton(onClick = { resolveAddress() }, enabled = !submitting && !resolving && address.isNotBlank() && city.isNotBlank()) { Text(if (resolving) "Locating venue…" else "Locate address") } }
+                if (nearby != null) item { TextButton(onClick = { latitude = nearby.latitude.toString(); longitude = nearby.longitude.toString(); edited() }, enabled = !submitting && !resolving) { Text("Use my position — venue is here") } }
+                item { Entry("Venue latitude", latitude, 20, !submitting && !resolving) { latitude = it; edited() } }
+                item { Entry("Venue longitude", longitude, 20, !submitting && !resolving) { longitude = it; edited() } }
+                item { Text("Check the coordinates match the venue. Its schedule is interpreted at this location automatically.") }
             } else {
-                item { Entry("Search venues in this area", venueQuery, 100, !submitting) { venueQuery = it } }
+                item { Entry("Search venues (closest first)", venueQuery, 100, !submitting) { venueQuery = it } }
                 if (venueLoading) item { CircularProgressIndicator() }
                 if (venueError != null) item { Text(venueError.orEmpty()); TextButton(onClick = { reload++ }) { Text("Retry venues") } }
                 item { Choice("Venue", businessName.ifBlank { "Choose a venue" }, businesses.map { it.id to "${it.name} · ${it.address}" }, !submitting && !venueLoading) { id ->
-                    businesses.firstOrNull { it.id == id }?.let { business -> businessId = id; businessName = business.name; venueZone(business.timeZone); edited() }
+                    businesses.firstOrNull { it.id == id }?.let { business -> businessId = id; businessName = business.name; edited() }
                 } }
                 if (!venueLoading && businesses.isEmpty()) item { Text("No matching venues. Change the search or propose a new venue.") }
                 if (hasMoreBusinesses) item { Text("Showing the first 50 venues. Refine your venue search.") }
             }
             item { Text("Venue-local schedule", style = MaterialTheme.typography.titleMedium) }
-            item { Text("Enter the date and times at the venue. Discovery converts them to each viewer's time zone.") }
+            item { Text("Enter the date and times at the venue. Everyone sees the event in their own local time.") }
             item { OutlinedButton(onClick = { showDate = true }, enabled = !submitting) { Text("Event date: $date") } }
-            item { Entry("Start time (HH:mm, 24-hour)", startTime, 5, !submitting) { startTime = it; edited() } }
-            item { Entry("End time (HH:mm, 24-hour)", endTime, 5, !submitting) { endTime = it; edited() } }
-            item { Row { Checkbox(checked = endsNextDay, onCheckedChange = { endsNextDay = it; edited() }, enabled = !submitting); Text("Ends next day") } }
-            item { Entry("Venue time zone", timeZone, 100, !submitting) { venueZone(it); edited() } }
+            item { Entry("Start time (HH:mm, 24-hour)", if (allDay) "00:00" else startTime, 5, !submitting && !allDay) { startTime = it; edited() } }
+            item { Entry("End time (HH:mm, 24-hour)", if (allDay) "23:59" else endTime, 5, !submitting && !allDay) { endTime = it; edited() } }
+            item { Row {
+                Checkbox(checked = endsNextDay && !allDay, onCheckedChange = { endsNextDay = it; edited() }, enabled = !submitting && !allDay); Text("Ends next day")
+                Checkbox(checked = allDay, onCheckedChange = { allDay = it; edited() }, enabled = !submitting); Text("All Day")
+            } }
             item { Row { Checkbox(checked = unknownPrice, onCheckedChange = { unknownPrice = it; edited() }, enabled = !submitting); Text("Price unknown") } }
             if (!unknownPrice) item { Entry("Price in USD (0 for free)", price, 11, !submitting) { price = it; edited() } }
             item { Entry("Offer or price details (optional)", offer, 2000, !submitting) { offer = it; edited() } }
             item { Entry("Requirements (optional)", requirements, 2000, !submitting) { requirements = it; edited() } }
             if (message != null) item { Text(message.orEmpty(), color = MaterialTheme.colorScheme.error) }
-            item { Button(onClick = { submit() }, enabled = !submitting && !loading && referenceError == null) { Text(if (submitting) "Sending…" else "Submit for review") } }
+            item { Button(onClick = { submit() }, enabled = !submitting && !resolving && !loading && referenceError == null) { Text(if (submitting) "Sending…" else "Submit for review") } }
         }
     }
     if (showDate) {
@@ -285,7 +278,7 @@ private fun submissionError(error: Exception): String {
             val detail = JsonParser.parseString(error.response()?.errorBody()?.string().orEmpty()).asJsonObject.getAsJsonObject("error")
             val issues = detail.getAsJsonArray("details")?.map { it.asJsonObject.get("message").asString }?.take(4)?.joinToString("\n")
             return issues ?: detail.get("message").asString
-        } catch (_: Exception) { return "Submission failed (HTTP ${error.code()}). Please retry." }
+        } catch (error: Exception) { return "Submission failed (HTTP ${error.code()}). Please retry." }
     }
     return "Couldn't confirm the submission. Check your connection and retry without editing to avoid a duplicate."
 }
