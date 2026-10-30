@@ -12,6 +12,10 @@ import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.Modifier
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -68,7 +72,7 @@ fun LocationTracker(refresh: Int, onLocation: (NearbyLocation?) -> Unit, onMessa
                     fix = null
                 }
                 latestLocation(fix?.let { NearbyLocation(it.latitude, it.longitude) })
-                latestMessage(if (fix == null) "Location unavailable. Enable phone location, then retry." else "Closest first · distances are approximate · times are local to your phone")
+                latestMessage(if (fix == null) "Location unavailable. Enable phone location, then retry." else "Local time · approximate straight-line distances")
             } catch (error: CancellationException) { throw error } catch (error: Exception) { latestLocation(null); latestMessage("Couldn't get your location. Check permission and phone location settings.") } finally { locating = false }
         }
     }
@@ -98,9 +102,9 @@ fun LocationTracker(refresh: Int, onLocation: (NearbyLocation?) -> Unit, onMessa
 fun LocationControls(location: NearbyLocation?, radius: Int, message: String, onRadius: (Int) -> Unit, onRetry: () -> Unit) {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(message)
+        Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (location != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(5, 10, 25, 100).forEach { miles ->
                     FilterChip(selected = radius == miles, onClick = { onRadius(miles) }, label = { Text("$miles mi") })
                 }

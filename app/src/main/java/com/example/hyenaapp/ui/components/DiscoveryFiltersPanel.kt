@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -63,13 +66,15 @@ fun DiscoveryFiltersPanel(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            failure = if (error is HttpException) "Categories unavailable (HTTP ${error.code()}). Check or restart the API." else "Categories unavailable. Check your connection and retry."
+            failure = if (error is HttpException) "Categories are temporarily unavailable. Please retry." else "Categories unavailable. Check your connection and retry."
         } finally {
             loading = false
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface) {
+    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Make it your kind of plan", style = MaterialTheme.typography.titleMedium)
         OutlinedTextField(
             value = filters.query,
             onValueChange = { onFiltersChange(filters.copy(query = it.take(100))) },
@@ -77,7 +82,8 @@ fun DiscoveryFiltersPanel(
             label = { Text("Search experiences") },
             singleLine = true
         )
-        Text("Categories")
+        Text("Categories", style = MaterialTheme.typography.titleSmall)
+        Text("Choose any that interest you. Matches any selected category.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (loading) Text("Loading categories…")
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -92,7 +98,7 @@ fun DiscoveryFiltersPanel(
             Text(failure.orEmpty())
             TextButton(onClick = { retry++ }) { Text("Retry categories") }
         } else if (!loading && categories.isEmpty()) {
-            Text("The API returned no categories. Check the category data in the database.")
+            Text("No categories are available yet. Please try again later.")
             TextButton(onClick = { retry++ }) { Text("Reload categories") }
         }
         Row(
@@ -118,7 +124,7 @@ fun DiscoveryFiltersPanel(
             Button(enabled = validPrice, onClick = {
                 onFiltersChange(filters.copy(maxPrice = draftPrice))
             }) { Text("Apply maximum") }
-            Text("Applied: up to ${filters.maxPrice} USD. Unknown prices excluded; no currency conversion.")
+            Text("Applied: up to ${filters.maxPrice} USD. Unknown prices are excluded.")
         } else if (filters.priceMode == "free") {
             Text("Only listings with a numeric price of zero. Unknown prices excluded.")
         }
@@ -129,6 +135,7 @@ fun DiscoveryFiltersPanel(
             Text(if (filters.window == "date") "Date: ${filters.date}" else "Choose a date")
         }
         TextButton(onClick = onClear) { Text("Clear filters") }
+    }
     }
     if (showDate) {
         val initial = filters.date?.let(LocalDate::parse) ?: LocalDate.now(ZoneId.of(timeZone))

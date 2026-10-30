@@ -21,6 +21,7 @@ import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.data.repository.NearbyLocation
 import com.example.hyenaapp.data.repository.DiscoveryFilters
 import com.example.hyenaapp.domain.model.Experience
+import com.example.hyenaapp.ui.components.PageHeader
 import com.example.hyenaapp.ui.components.ExperienceCard
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
@@ -63,7 +64,7 @@ fun ExploreScreen(
             throw error
         } catch (error: Exception) {
             errorMessage =
-                "Couldn't load experiences. Check your connection and server."
+                "Couldn't load experiences. Check your connection and try again."
         } finally {
             isLoading = false
         }
@@ -71,19 +72,13 @@ fun ExploreScreen(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(24.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item {
-            Text(
-                text = "Explore",
-                style = MaterialTheme.typography.headlineLarge
-            )
-        }
-
-        item { filterControls() }
+        item { PageHeader("Discover / Explore", "Find your kind of good time.", "Search local experiences. Soonest first, then distance when start times match.") }
 
         item { locationControls() }
+        item { filterControls() }
 
 
         when {

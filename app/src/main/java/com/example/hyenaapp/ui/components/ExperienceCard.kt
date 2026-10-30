@@ -1,17 +1,14 @@
 package com.example.hyenaapp.ui.components
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.clickable
+import java.util.Locale
 
 @Composable
 fun ExperienceCard(
@@ -26,33 +23,34 @@ fun ExperienceCard(
     savingEnabled: Boolean = true,
     onToggleSave: (() -> Unit)? = null
 ) {
-    Card(modifier = modifier
-        .fillMaxWidth()
-        .clickable(onClick=onClick)) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge
-            )
-            Text(
-                text = businessName,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            distanceMiles?.let { Text(String.format(java.util.Locale.US, "%.1f mi away", it)) }
-            Text(
-                text = schedule,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                text = offer,
-                style = MaterialTheme.typography.labelLarge
-            )
+    Card(
+        modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(businessName, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                distanceMiles?.let {
+                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
+                        Text(if (it < 0.1) "<0.1 mi" else String.format(Locale.US, "%.1f mi", it), Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+            Text(title, style = MaterialTheme.typography.titleLarge)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("WHEN", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Text(schedule, style = MaterialTheme.typography.bodyMedium)
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
+                Text(offer, Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
             onToggleSave?.let { toggle ->
-                TextButton(onClick = toggle, enabled = savingEnabled) {
-                    Text(if (isSaved) "Remove from saved" else "Save experience")
+                TextButton(onClick = toggle, enabled = savingEnabled, modifier = Modifier.align(Alignment.End)) {
+                    Text(if (isSaved) "Saved · Remove" else "Save experience")
                 }
             }
         }

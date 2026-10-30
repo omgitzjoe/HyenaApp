@@ -7,8 +7,8 @@ This specification replaces named-area selection and the optional Near me workfl
 - Home and Explore automatically request foreground location permission and obtain a fresh position. Approximate permission works; denied/unavailable location shows Retry/App settings rather than global results. There is no area selector or Near me button. Saved snapshots remain accessible offline.
 - Location is refreshed when returning to the app and with Home Refresh. No background tracking or location history is added.
 - The shared radius is 5, 10 (default), 25, or 100 miles. Distances are approximate straight-line miles, not driving routes.
-- Home shows up to twelve ongoing/upcoming experiences today, closest first. Explore combines search, dates/time windows, USD pricing, distance, and multiple category selections. Selected categories use **any selected category** (OR); other filter types combine with AND. All categories clears the category selection.
-- Results sort by distance before applying the limit. Equal distances use occurrence start (or title in All dates), then ID, for stable ordering. The many-to-many experience_categories table prevents duplicate links/results.
+- Home shows up to twelve ongoing/upcoming experiences today, soonest first, then distance. Explore combines search, dates/time windows, USD pricing, distance, and multiple category selections. Selected categories use **any selected category** (OR); other filter types combine with AND. All categories clears the category selection.
+- Results sort by occurrence start, then distance for equal times, before applying the limit. Title and ID provide stable final ties. Undated listings come last. The many-to-many experience_categories table prevents duplicate links/results.
 - Preview cards show distance. Saved cards recompute distance from the latest position when saved coordinates are available; old snapshots without coordinates omit distance.
 - Instants remain stored/transmitted accurately. Android formats every dated interval in the phone's current local time and omits zone names. Today/Tonight/selected-date boundaries use that same phone setting. Set the phone's automatic time-zone setting when traveling. Venue schedules still retain internal IANA zones for daylight saving.
 
@@ -48,10 +48,10 @@ Discovery still evaluates the small curated catalog in memory after SQL search/c
 
 1. Pull master, sync/rebuild/install Android, and retain the hosted HTTPS API URL. No new Render secrets are required. Render's startup applies migration 003.
 2. Grant approximate or precise location. Home/Explore load without pressing Near me. Deny it and verify the settings/retry state; Saved still opens.
-3. Check that card distances increase down the list, including All dates and a limited Home feed. Move a test location and return/refresh; distances and results should change.
+3. Check that start times increase down the list, with closer venues first when start times match, including All dates and the limited Home feed. Move a test location and return/refresh; distances and results should change.
 4. Select multiple categories; verify OR behavior and no duplicate experience cards. Combine with Free, a date, and search, then Clear filters.
 5. Submit a venue using a resolved address/verified coordinates. There should be no area/zone fields. Select two categories, toggle All Day, submit, approve, and inspect local-time display. Also test overnight with All Day off.
 6. Open the same event with different phone time-zone settings; the displayed interval changes but refers to the same UTC instants. Restore automatic phone time zone afterward.
 7. Test rejection, retries, missing coordinates, disabled phone location, and an old queued submission.
 
-Backend automated coverage includes fresh schema/seeds, legacy upgrades and reruns, distance-before-limit, antimeridian calculations, category unions, all-day constraints/publication, derived venue zones, private review/authentication, and existing discovery/recurrence behavior. Android compilation/device acceptance must run in Android Studio if the build environment cannot download Gradle; Kotlin syntax parsing is only an additional check, not a replacement for compilation.
+Backend automated coverage includes fresh schema/seeds, legacy upgrades and reruns, time/distance-before-limit, antimeridian calculations, category unions, all-day constraints/publication, derived venue zones, private review/authentication, and existing discovery/recurrence behavior. Android compilation/device acceptance must run in Android Studio if the build environment cannot download Gradle; Kotlin syntax parsing is only an additional check, not a replacement for compilation.

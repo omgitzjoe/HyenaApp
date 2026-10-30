@@ -9,7 +9,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -171,18 +174,18 @@ fun HyenaApp() {
 
     Scaffold(bottomBar = {
         if (!showingDetails && !showingSubmission) {
-            NavigationBar {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 listOf("Home", "Explore", "Saved").forEach { tab ->
                     NavigationBarItem(
                         selected = selectedTab == tab, onClick = { selectedTab = tab },
-                        icon = { Text(tab.take(1)) }, label = { Text(tab) }
+                        icon = { Icon(painterResource(when (tab) { "Home" -> R.drawable.ic_home; "Explore" -> R.drawable.ic_explore; else -> R.drawable.ic_saved }), contentDescription = null) }, label = { Text(tab) }
                     )
                 }
             }
         }
     }, floatingActionButton = {
         if (!showingDetails && !showingSubmission && selectedTab != "Saved") {
-            FloatingActionButton(onClick = { showingSubmission = true }) { Text("+ Event") }
+            ExtendedFloatingActionButton(onClick = { showingSubmission = true }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) { Text("+ Submit event") }
         }
     }) { innerPadding ->
         Column(Modifier.padding(innerPadding).fillMaxSize()) {

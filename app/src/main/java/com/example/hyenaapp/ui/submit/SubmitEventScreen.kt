@@ -36,6 +36,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.hyenaapp.ui.components.PageHeader
+import com.example.hyenaapp.ui.components.FormSection
 import com.example.hyenaapp.data.remote.ApiClient
 import com.example.hyenaapp.data.repository.NearbyLocation
 import android.location.Geocoder
@@ -178,7 +180,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item { TextButton(onClick = onDone, enabled = !submitting) { Text("Back") } }
-        item { Text("Submit an event", style = MaterialTheme.typography.headlineLarge) }
+        item { PageHeader("Share / Submit event", "Bring people together.", "Add an experience for your community. Every submission is reviewed before it appears publicly.") }
         if (receiptId != null) {
             item { Text(when (receiptStatus) { "APPROVED" -> "Your event has been approved."; "REJECTED" -> "Your submission was reviewed and not approved."; else -> "Submission received. It will not appear publicly until an administrator approves it." }) }
             item { Text("Reference: $receiptId") }
@@ -189,7 +191,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
                 dateTouched = false; latitude = ""; longitude = ""; allDay = false; requestId = UUID.randomUUID().toString(); message = null
             }) { Text("Submit another event") } }
         } else {
-            item { Text("One-time events are reviewed before publishing. Please check the venue, price, and schedule.") }
+            item { FormSection("01", "The experience", "Tell people what makes this event worth a visit.") }
             if (loading) item { CircularProgressIndicator() }
             if (referenceError != null) item { Text(referenceError.orEmpty()); Button(onClick = { reload++ }) { Text("Retry reference data") } }
             item { Entry("Event title", title, 200, !submitting) { title = it; edited() } }
@@ -201,6 +203,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
                 }
                 if (!loading && categories.isEmpty()) Text("No categories available. Ask the administrator to add categories.")
             }
+            item { FormSection("02", "The venue", "Choose a venue or locate a new one by its address.") }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = !proposed, onClick = { proposed = false; edited() }, enabled = !submitting, label = { Text("Existing venue") })
@@ -226,15 +229,21 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
                 if (!venueLoading && businesses.isEmpty()) item { Text("No matching venues. Change the search or propose a new venue.") }
                 if (hasMoreBusinesses) item { Text("Showing the first 50 venues. Refine your venue search.") }
             }
-            item { Text("Venue-local schedule", style = MaterialTheme.typography.titleMedium) }
-            item { Text("Enter the date and times at the venue. Everyone sees the event in their own local time.") }
+            item { FormSection("03", "Date & time", "Enter the times at the venue. Everyone sees the event in their own local time.") }
             item { OutlinedButton(onClick = { showDate = true }, enabled = !submitting) { Text("Event date: $date") } }
             item { Entry("Start time (HH:mm, 24-hour)", if (allDay) "00:00" else startTime, 5, !submitting && !allDay) { startTime = it; edited() } }
             item { Entry("End time (HH:mm, 24-hour)", if (allDay) "23:59" else endTime, 5, !submitting && !allDay) { endTime = it; edited() } }
-            item { Row {
-                Checkbox(checked = endsNextDay && !allDay, onCheckedChange = { endsNextDay = it; edited() }, enabled = !submitting && !allDay); Text("Ends next day")
-                Checkbox(checked = allDay, onCheckedChange = { allDay = it; edited() }, enabled = !submitting); Text("All Day")
+            item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.weight(1f)) {
+                    Checkbox(checked = endsNextDay && !allDay, onCheckedChange = { endsNextDay = it; edited() }, enabled = !submitting && !allDay)
+                    Text("Ends next day", modifier = Modifier.weight(1f))
+                }
+                Row(Modifier.weight(1f)) {
+                    Checkbox(checked = allDay, onCheckedChange = { allDay = it; edited() }, enabled = !submitting)
+                    Text("All Day", modifier = Modifier.weight(1f))
+                }
             } }
+            item { FormSection("04", "Price & details", "Make costs and participation requirements clear.") }
             item { Row { Checkbox(checked = unknownPrice, onCheckedChange = { unknownPrice = it; edited() }, enabled = !submitting); Text("Price unknown") } }
             if (!unknownPrice) item { Entry("Price in USD (0 for free)", price, 11, !submitting) { price = it; edited() } }
             item { Entry("Offer or price details (optional)", offer, 2000, !submitting) { offer = it; edited() } }
@@ -273,7 +282,7 @@ private fun Choice(label: String, selected: String, options: List<Pair<String, S
 
 private fun submissionError(error: Exception): String {
     if (error is HttpException) {
-        if (error.code() == 404) return "The submission service is not deployed yet. Check the feature setup guide."
+        if (error.code() == 404) return "Event submission is temporarily unavailable. Please try again later."
         try {
             val detail = JsonParser.parseString(error.response()?.errorBody()?.string().orEmpty()).asJsonObject.getAsJsonObject("error")
             val issues = detail.getAsJsonArray("details")?.map { it.asJsonObject.get("message").asString }?.take(4)?.joinToString("\n")

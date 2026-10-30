@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.repository.displaySchedule
 import com.example.hyenaapp.domain.model.Experience
+import com.example.hyenaapp.ui.components.PageHeader
 import com.example.hyenaapp.ui.components.ExperienceCard
 
 @Composable
@@ -27,11 +28,10 @@ fun SavedScreen(
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
-        modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp),
+        modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { Text("Saved", style = MaterialTheme.typography.headlineLarge) }
-        item { Text("Saved on this phone. These are snapshots; schedules and offers may have changed since saving.") }
+        item { PageHeader("Your collection / Saved", "Keep the good ones.", "Your shortlist, saved on this phone. Check current details before heading out.") }
         when {
             loading -> item { CircularProgressIndicator() }
             !available -> item { Text("Saved experiences could not be loaded. Use Retry saved storage above.") }

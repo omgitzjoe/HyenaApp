@@ -226,7 +226,7 @@ test('multiple category selections use OR, never duplicate experiences, and reje
     assert.equal((await get(`?categoryIds=${ids.food}&categoryId=${ids.music}`)).status,400);
 });
 
-test('distance is the default order before limiting, including All dates and ties', async()=>{
+test('equal start times sort by distance before limiting, including All dates', async()=>{
     const venues=[],events=[];
     try {
         for (const [title,longitude] of [['A farthest',0.2],['Z nearest',0],['B middle',0.1]]) {
@@ -248,4 +248,25 @@ test('distance is the default order before limiting, including All dates and tie
 test('public discovery requires a location instead of silently returning global results',async()=>{
     const response=await fetch(url+'?window=all');
     assert.equal(response.status,400);assert.equal((await response.json()).error.code,'LOCATION_REQUIRED');
+});
+
+
+test('Home and Explore choose soonest within radius before limiting, then distance for equal times', async()=>{
+    const venues=[],events=[];
+    try {
+        for (const [title,longitude,startTime] of [['Later nearby',0,'20:00'],['Soon far',0.1,'19:00'],['Soon nearer',0.05,'19:00'],['Earlier outside',0.3,'18:30']]) {
+            const id=randomUUID();venues.push(id);
+            await db.query("INSERT INTO businesses(id,name,address,city,latitude,longitude) VALUES ($1,'Time fixture venue','1 Main','Fixture',0,$2)",[id,longitude]);
+            events.push(await addExperience(title,{businessId:id,startTime,endTime:'21:00',zone:'UTC'}));
+        }
+        for (const window of ['today','all']) {
+            const r=await get(`?window=${window}&latitude=0&longitude=0&radiusMiles=10&limit=2&timeZone=UTC`);
+            assert.equal(r.status,200);assert.equal(r.body.hasMore,true);
+            assert.deepEqual(r.body.items.map(x=>x.title),['Soon nearer','Soon far']);
+            assert.ok(r.body.items[0].distanceMiles<r.body.items[1].distanceMiles);
+        }
+    } finally {
+        for(const id of events)await db.query('DELETE FROM experiences WHERE id=$1',[id]);
+        for(const id of venues)await db.query('DELETE FROM businesses WHERE id=$1',[id]);
+    }
 });

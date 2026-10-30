@@ -95,9 +95,13 @@ function evaluateCandidates(rows, filters, now, onInvalid = () => {}) {
             onInvalid(row.id, error);
         }
     }
-    matches.sort((a, b) => (filters.proximity ? a.distanceMiles - b.distanceMiles : 0) || (filters.window === "all"
-        ? a.title.localeCompare(b.title) || a.id.localeCompare(b.id)
-        : Temporal.Instant.compare(a.nextOccurrence.startsAt, b.nextOccurrence.startsAt) || a.id.localeCompare(b.id)));
+    matches.sort((a, b) => {
+        const byTime = a.nextOccurrence && b.nextOccurrence
+            ? Temporal.Instant.compare(a.nextOccurrence.startsAt, b.nextOccurrence.startsAt)
+            : a.nextOccurrence ? -1 : b.nextOccurrence ? 1 : 0;
+        return byTime || (filters.proximity ? a.distanceMiles - b.distanceMiles : 0)
+            || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
+    });
     return {
         items: matches.slice(0, filters.limit),
         count: Math.min(matches.length, filters.limit),

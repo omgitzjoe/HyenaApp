@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.data.repository.NearbyLocation
 import com.example.hyenaapp.domain.model.Experience
+import com.example.hyenaapp.ui.components.PageHeader
 import com.example.hyenaapp.ui.components.ExperienceCard
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -67,12 +68,10 @@ fun HomeScreen(
     }
 
     LazyColumn(
-        modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp),
+        modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { Text("Hyena", style = MaterialTheme.typography.headlineLarge) }
-        item { Text("Today nearby", style = MaterialTheme.typography.titleMedium) }
-        item { Text("Up to 12 experiences today, closest first. Times are local to your phone.") }
+        item { PageHeader("Hyena / Today", "Good plans, close by.", "Today’s next 12 experiences. Soonest first, with distance breaking time ties.", mascot = true) }
         item { locationControls() }
         item {
             Button(onClick = { onRefreshLocation(); reloadKey++ }, enabled = !loading) { Text("Refresh") }
