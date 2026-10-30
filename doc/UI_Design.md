@@ -2,6 +2,8 @@
 
 Home and Explore sort eligible results by occurrence start, then distance for matching start times, before limiting the list. The radius excludes distant experiences first. Title and ID make remaining ties stable; undated listings come last. All dates retains historical occurrences for inspection. There is no schema or seed change for this sorting/UI update.
 
+For saved appearance/search preferences, 12-hour time entry, nearby live venue suggestions and the current realistic mascot, see [Preferences_and_Venue_Search.md](Preferences_and_Venue_Search.md). That update supersedes the numbered sections and original mascot references below.
+
 The interface uses forest green, warm neutral surfaces, and a gold accent drawn from the new mascot. Both light and dark palettes have explicit text/surface roles. Typography has distinct page titles, event titles, field labels, and supporting text. Rounded surface panels organize headers, filters, cards, details, and submission sections. Navigation uses recognizable Home, Search, and Bookmark icons; the event action is labeled Submit event. Lists reserve bottom space for the floating action. Location radius chips scroll on narrow screens; the schedule checkbox labels wrap within their own columns.
 
 Cards prioritize venue, event title, schedule, and price in separate sections. Distance remains visible in a compact badge. No event title is truncated. Saved uses the same cards; Details uses consistent information panels. Font sizes use sp and inherit system font scaling. Foreground location, saving behavior, request idempotency, review authorization and the local-time conversion remain unchanged.

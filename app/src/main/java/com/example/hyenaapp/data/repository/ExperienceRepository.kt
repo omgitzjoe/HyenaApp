@@ -57,8 +57,8 @@ internal fun formatOccurrence(occurrence: OccurrenceDto, zone: ZoneId = ZoneId.s
 internal fun formatInterval(startsAt: String, endsAt: String, zone: ZoneId): String {
     val start = Instant.parse(startsAt).atZone(zone)
     val end = Instant.parse(endsAt).atZone(zone)
-    val dateTime = DateTimeFormatter.ofPattern("EEE, MMM d · HH:mm", Locale.US)
-    val time = DateTimeFormatter.ofPattern("HH:mm", Locale.US)
+    val dateTime = DateTimeFormatter.ofPattern("EEE, MMM d · h:mm a", Locale.US)
+    val time = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
     val endLabel = if (start.toLocalDate() == end.toLocalDate()) {
         end.format(time)
     } else {

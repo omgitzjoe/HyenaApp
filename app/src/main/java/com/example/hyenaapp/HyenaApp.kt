@@ -1,10 +1,21 @@
 package com.example.hyenaapp
 
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.Alignment
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import com.example.hyenaapp.data.repository.AppPreferences
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -53,8 +64,9 @@ import java.time.ZoneId
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HyenaApp() {
+fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange: (AppPreferences) -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val savedStore = remember(context) { SavedExperienceStore(context) }
@@ -98,33 +110,20 @@ fun HyenaApp() {
     val savedIds = savedExperiences.map { it.id }.toSet()
 
     var nearby by remember { mutableStateOf<NearbyLocation?>(null) }
-    var radiusMiles by rememberSaveable { mutableStateOf(10) }
+    val radiusMiles = preferences.radiusMiles
+    var showAppearance by remember { mutableStateOf(false) }
     var timeZone by remember { mutableStateOf(ZoneId.systemDefault().id) }
     var resetKey by remember { mutableStateOf(0) }
     var locationMessage by remember { mutableStateOf("Finding your location…") }
     LocationTracker(resetKey, { nearby = it }, { locationMessage = it })
     val locationControls: @Composable () -> Unit = {
-        LocationControls(nearby, radiusMiles, locationMessage, { radiusMiles = it }, { resetKey++ })
+        LocationControls(nearby, radiusMiles, locationMessage, { onPreferencesChange(preferences.copy(radiusMiles = it)) }, { resetKey++ })
     }
-    var searchQuery by rememberSaveable { mutableStateOf("") }
-    var categoryIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
-    var selectedWindow by rememberSaveable { mutableStateOf("today") }
-    var selectedDate by rememberSaveable { mutableStateOf<String?>(null) }
-    var priceMode by rememberSaveable { mutableStateOf("any") }
-    var maxPrice by rememberSaveable { mutableStateOf("25.00") }
-    val filters = DiscoveryFilters(searchQuery, categoryIds, selectedWindow, selectedDate, priceMode, maxPrice)
-    val updateFilters: (DiscoveryFilters) -> Unit = {
-        searchQuery = it.query
-        categoryIds = ArrayList(it.categoryIds)
-        selectedWindow = it.window
-        selectedDate = it.date
-        priceMode = it.priceMode
-        maxPrice = it.maxPrice
-    }
+    val filters = preferences.filters
+    val updateFilters: (DiscoveryFilters) -> Unit = { onPreferencesChange(preferences.copy(filters = it)) }
     val filterControls: @Composable () -> Unit = {
         DiscoveryFiltersPanel(filters, timeZone, updateFilters, onClear = {
-            updateFilters(DiscoveryFilters())
-            radiusMiles = 10
+            onPreferencesChange(preferences.copy(filters = DiscoveryFilters(), radiusMiles = 10))
         })
     }
 
@@ -172,7 +171,26 @@ fun HyenaApp() {
         if (showingSubmission) showingSubmission = false else showingDetails = false
     }
 
-    Scaffold(bottomBar = {
+    if (showAppearance) {
+        AlertDialog(onDismissRequest = { showAppearance = false }, title = { Text("Appearance") }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Choose your preferred theme. Your choice is saved on this phone.")
+                listOf("light" to "Light", "dark" to "Dark").forEach { (value, label) ->
+                    Row(Modifier.fillMaxWidth().selectable(selected = preferences.theme == value,
+                        onClick = { onPreferencesChange(preferences.copy(theme = value)) }, role = Role.RadioButton),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = preferences.theme == value, onClick = null)
+                        Text(label)
+                    }
+                }
+            }
+        }, confirmButton = { TextButton(onClick = { showAppearance = false }) { Text("Done") } })
+    }
+    Scaffold(topBar = {
+        TopAppBar(title = { Text("Hyena", style = MaterialTheme.typography.titleLarge) }, actions = {
+            TextButton(onClick = { showAppearance = true }) { Text("Appearance") }
+        })
+    }, bottomBar = {
         if (!showingDetails && !showingSubmission) {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 listOf("Home", "Explore", "Saved").forEach { tab ->
@@ -195,7 +213,7 @@ fun HyenaApp() {
             }
             Box(Modifier.weight(1f)) {
                 if (showingSubmission) {
-                    SubmitEventScreen(nearby = nearby, onDone = { showingSubmission = false })
+                    SubmitEventScreen(nearby = nearby, radiusMiles = radiusMiles, onDone = { showingSubmission = false })
                 } else if (showingDetails) {
                     val experience = Experience(detailId, detailTitle, detailBusiness, detailSchedule, detailOffer, detailStart, detailEnd, latitude = detailLatitude, longitude = detailLongitude)
                     ExperienceDetailsScreen(

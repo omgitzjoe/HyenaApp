@@ -57,7 +57,7 @@ fun HomeScreen(
                 window = "today", timeZone = timeZone,
                 nearby = nearby, radiusMiles = radiusMiles, limit = 12
             )
-            refreshedAt = ZonedDateTime.now(ZoneId.of(timeZone)).format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+            refreshedAt = ZonedDateTime.now(ZoneId.of(timeZone)).format(DateTimeFormatter.ofPattern("h:mm:ss a", java.util.Locale.US))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {

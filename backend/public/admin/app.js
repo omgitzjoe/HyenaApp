@@ -21,7 +21,7 @@ function renderQueue(){
     $('queue-heading').textContent=status.charAt(0)+status.slice(1).toLowerCase()+' submissions';$('queue-count').textContent=String(rows.length);
     $('queue').replaceChildren();$('more').hidden=!nextCursor;
     if(!rows.length){$('queue').append(element('p','No '+status.toLowerCase()+' submissions.','queue-empty'));$('detail').replaceChildren(element('div','The queue is clear. Refresh to check for new submissions.','empty-state'));return;}
-    rows.forEach(row=>{const button=element('button',undefined,'queue-item'+(row.id===selectedId?' selected':''));button.append(element('strong',row.payload.event.title),element('small',new Date(row.createdAt).toLocaleString()),tag(row.status));button.addEventListener('click',()=>{if(!busy)select(row.id);});$('queue').append(button);});
+    rows.forEach(row=>{const button=element('button',undefined,'queue-item'+(row.id===selectedId?' selected':''));button.append(element('strong',row.payload.event.title),element('small',new Date(row.createdAt).toLocaleString('en-US',{hour12:true})),tag(row.status));button.addEventListener('click',()=>{if(!busy)select(row.id);});$('queue').append(button);});
 }
 async function loadQueue(append=false){
     if(busy)return;const generation=authGeneration;busy=true;$('refresh').disabled=true;$('more').disabled=true;
@@ -35,10 +35,10 @@ async function select(id){
     const detail=$('detail');detail.replaceChildren(tag(row.status),element('h2',event.title,'detail-title'),element('p',event.description,'event-description'));
     const facts=element('div',undefined,'facts');
     facts.append(fact('VENUE',proposal?proposal.name+'\n'+proposal.address+', '+proposal.city+'\nProposed venue · '+(proposal.latitude??'Location needed')+', '+(proposal.longitude??''):row.business?row.business.name+'\n'+row.business.address+', '+row.business.city+(row.business.isActive?'':'\nInactive venue'):venue.businessId+'\nVenue unavailable'));
-    facts.append(fact('YOUR LOCAL TIME',row.occurrence?(s.allDay?'All Day at venue · ':'')+new Date(row.occurrence.startsAt).toLocaleString()+' – '+new Date(row.occurrence.endsAt).toLocaleString():'Verify the venue location to preview local times.'));
+    facts.append(fact('YOUR LOCAL TIME',row.occurrence?(s.allDay?'All Day at venue · ':'')+new Date(row.occurrence.startsAt).toLocaleString('en-US',{hour12:true})+' – '+new Date(row.occurrence.endsAt).toLocaleString('en-US',{hour12:true}):'Verify the venue location to preview local times.'));
     facts.append(fact('PRICE',event.priceAmount===null?'Price unknown':event.priceAmount+' '+event.currency),fact('CATEGORIES',event.categoryIds.map(x=>categoryNames.get(x)||x).join(', ')));
     if(event.offer)facts.append(fact('OFFER',event.offer));if(event.requirements)facts.append(fact('REQUIREMENTS',event.requirements));detail.append(facts,element('p','Reference '+row.id,'muted'));
-    if(row.status!=='PENDING'){detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.reviewedAt).toLocaleString(),'muted'));if(row.reviewNote)detail.append(fact('REVIEW NOTE',row.reviewNote));if(row.experienceId){const link=element('a','View published API entry');link.href='/api/v1/experiences/'+encodeURIComponent(row.experienceId);link.target='_blank';link.rel='noopener';detail.append(link);}return;}
+    if(row.status!=='PENDING'){detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.reviewedAt).toLocaleString('en-US',{hour12:true}),'muted'));if(row.reviewNote)detail.append(fact('REVIEW NOTE',row.reviewNote));if(row.experienceId){const link=element('a','View published API entry');link.href='/api/v1/experiences/'+encodeURIComponent(row.experienceId);link.target='_blank';link.rel='noopener';detail.append(link);}return;}
     const actions=element('div',undefined,'review-actions');actions.append(element('h3','Review decision'));
     const venueSelect=element('select');venueSelect.append(new Option(proposal?'Create proposed venue':'Keep submitted venue',''));
     let latitude,longitude;
@@ -53,7 +53,7 @@ async function select(id){
     }
     if(proposal){
         venueSelect.addEventListener('change',()=>{latitude.disabled=longitude.disabled=!!venueSelect.value;});
-        api('/api/v1/businesses?'+new URLSearchParams({q:proposal.name.slice(0,100)})).then(data=>{if(selectedId===id)data.items.forEach(x=>venueSelect.append(new Option(x.name+' · '+x.address,x.id)));}).catch(()=>notice('Venue matches could not load. Refresh before approving a new venue.'));
+        api('/api/v1/businesses?'+new URLSearchParams({q:proposal.name.slice(0,100),searchAll:'true'})).then(data=>{if(selectedId===id)data.items.forEach(x=>venueSelect.append(new Option(x.name+' · '+x.address,x.id)));}).catch(()=>notice('Venue matches could not load. Refresh before approving a new venue.'));
     }
     const note=element('textarea');note.maxLength=2000;note.placeholder='Required for rejection; optional for approval.';const noteLabel=element('label','Review note');noteLabel.append(note);actions.append(noteLabel);
     const approve=element('button','Approve & publish','primary'),reject=element('button','Reject submission','danger');

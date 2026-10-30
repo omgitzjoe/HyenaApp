@@ -1,6 +1,18 @@
 package com.example.hyenaapp.ui.submit
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TimeInput
+import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import java.time.format.DateTimeFormatter
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,15 +79,20 @@ import retrofit2.HttpException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
+fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val displayTime = remember { DateTimeFormatter.ofPattern("h:mm a", Locale.US) }
     var title by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
     var categoryIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var proposed by rememberSaveable { mutableStateOf(false) }
     var businessId by rememberSaveable { mutableStateOf("") }
     var businessName by rememberSaveable { mutableStateOf("") }
+    var searchAllVenues by rememberSaveable { mutableStateOf(false) }
+    var businessAddress by rememberSaveable { mutableStateOf("") }
+    var editingTime by remember { mutableStateOf<String?>(null) }
     var venueQuery by rememberSaveable { mutableStateOf("") }
     var venueName by rememberSaveable { mutableStateOf("") }
     var address by rememberSaveable { mutableStateOf("") }
@@ -113,13 +130,15 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
         referenceError = null
         try { categories = ApiClient.api.getCategories().items } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { referenceError = "Couldn't load categories. Check your connection and retry." } finally { loading = false }
     }
-    LaunchedEffect(nearby, venueQuery, reload) {
-        if (nearby == null) { businesses = emptyList(); return@LaunchedEffect }
+    LaunchedEffect(nearby, radiusMiles, venueQuery, searchAllVenues, reload) {
+        if (nearby == null && !searchAllVenues) { businesses = emptyList(); venueLoading = false; venueError = "Enable location or turn on Search all venues."; return@LaunchedEffect }
+        if (businessId.isNotBlank()) return@LaunchedEffect
         venueLoading = true
         venueError = null
+        businesses = emptyList()
         try {
             if (venueQuery.isNotBlank()) delay(300)
-            val response = ApiClient.api.getBusinesses(venueQuery.trim(), nearby.latitude, nearby.longitude)
+            val response = ApiClient.api.getBusinesses(venueQuery.trim(), nearby?.latitude, nearby?.longitude, if (nearby != null) radiusMiles else null, searchAllVenues)
             businesses = response.items
             hasMoreBusinesses = response.hasMore
         } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { venueError = "Couldn't load venues. Retry, or propose a new venue."; businesses = emptyList() } finally { venueLoading = false }
@@ -152,7 +171,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
             proposed && (venueName.isBlank() || address.isBlank() || city.isBlank()) -> "Enter the proposed venue name, address, and city."
             proposed && (latitude.toDoubleOrNull()?.let { it.isFinite() && it in -90.0..90.0 } != true || longitude.toDoubleOrNull()?.let { it.isFinite() && it in -180.0..180.0 } != true) -> "Locate the venue or enter valid latitude and longitude."
             !unknownPrice && !Regex("(0|[1-9]\\d{0,7})(\\.\\d{1,2})?").matches(price.trim()) -> "Enter a nonnegative USD price with up to two decimal places, or choose Price unknown."
-            !allDay && (!Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(startTime) || !Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(endTime)) -> "Use 24-hour times such as 18:00 and 20:00."
+            !allDay && (!Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(startTime) || !Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(endTime)) -> "Choose a valid start and end time."
             (!allDay && (if (endsNextDay) endTime > startTime else endTime <= startTime)) -> "Check the end time and Ends next day option."
             else -> null
         }
@@ -188,10 +207,10 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
             item { OutlinedButton(onClick = {
                 receiptId = null; title = ""; description = ""; price = ""; unknownPrice = true
                 offer = ""; requirements = ""; businessId = ""; businessName = ""; venueName = ""; address = ""; city = ""
-                dateTouched = false; latitude = ""; longitude = ""; allDay = false; requestId = UUID.randomUUID().toString(); message = null
+                dateTouched = false; latitude = ""; longitude = ""; allDay = false; venueQuery = ""; businessAddress = ""; requestId = UUID.randomUUID().toString(); message = null
             }) { Text("Submit another event") } }
         } else {
-            item { FormSection("01", "The experience", "Tell people what makes this event worth a visit.") }
+            item { FormSection("The experience", "Tell people what makes this event worth a visit.") }
             if (loading) item { CircularProgressIndicator() }
             if (referenceError != null) item { Text(referenceError.orEmpty()); Button(onClick = { reload++ }) { Text("Retry reference data") } }
             item { Entry("Event title", title, 200, !submitting) { title = it; edited() } }
@@ -203,7 +222,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
                 }
                 if (!loading && categories.isEmpty()) Text("No categories available. Ask the administrator to add categories.")
             }
-            item { FormSection("02", "The venue", "Choose a venue or locate a new one by its address.") }
+            item { FormSection("The venue", "Choose a venue or locate a new one by its address.") }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = !proposed, onClick = { proposed = false; edited() }, enabled = !submitting, label = { Text("Existing venue") })
@@ -220,19 +239,59 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
                 item { Entry("Venue longitude", longitude, 20, !submitting && !resolving) { longitude = it; edited() } }
                 item { Text("Check the coordinates match the venue. Its schedule is interpreted at this location automatically.") }
             } else {
-                item { Entry("Search venues (closest first)", venueQuery, 100, !submitting) { venueQuery = it } }
+                item {
+                    Row(Modifier.fillMaxWidth()) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Search all venues", style = MaterialTheme.typography.titleSmall)
+                            Text(if (searchAllVenues) "All locations" else "Within $radiusMiles miles", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(modifier = Modifier.semantics { contentDescription = "Search all venues" }, checked = searchAllVenues, enabled = !submitting, onCheckedChange = {
+                            searchAllVenues = it; businessId = ""; businessName = ""; businessAddress = ""; businesses = emptyList(); edited()
+                        })
+                    }
+                }
+                item {
+                    OutlinedTextField(value = venueQuery, onValueChange = {
+                        venueQuery = it.take(100); businessId = ""; businessName = ""; businessAddress = ""; businesses = emptyList(); edited()
+                    }, modifier = Modifier.fillMaxWidth(), enabled = !submitting, singleLine = true,
+                        label = { Text("Find a venue") }, supportingText = { Text("Type a venue name, street, or city.") })
+                }
+                if (businessId.isNotBlank()) item {
+                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.primaryContainer) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Selected venue", style = MaterialTheme.typography.labelMedium)
+                            Text(businessName, style = MaterialTheme.typography.titleMedium)
+                            Text(businessAddress, style = MaterialTheme.typography.bodyMedium)
+                            TextButton(enabled = !submitting, onClick = { businessId = ""; businessName = ""; businessAddress = ""; venueQuery = ""; reload++; edited() }) { Text("Change venue") }
+                        }
+                    }
+                }
                 if (venueLoading) item { CircularProgressIndicator() }
-                if (venueError != null) item { Text(venueError.orEmpty()); TextButton(onClick = { reload++ }) { Text("Retry venues") } }
-                item { Choice("Venue", businessName.ifBlank { "Choose a venue" }, businesses.map { it.id to "${it.name} · ${it.address}" }, !submitting && !venueLoading) { id ->
-                    businesses.firstOrNull { it.id == id }?.let { business -> businessId = id; businessName = business.name; edited() }
-                } }
-                if (!venueLoading && businesses.isEmpty()) item { Text("No matching venues. Change the search or propose a new venue.") }
-                if (hasMoreBusinesses) item { Text("Showing the first 50 venues. Refine your venue search.") }
+                if (venueError != null && businessId.isBlank()) item { Text(venueError.orEmpty()); TextButton(onClick = { reload++ }) { Text("Retry venues") } }
+                if (businessId.isBlank()) {
+                    items(businesses.take(8), key = { "venue-${it.id}" }) { venue ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().clickable(enabled = !submitting && !venueLoading) {
+                                businessId = venue.id; businessName = venue.name; businessAddress = "${venue.address}, ${venue.city}"; venueQuery = venue.name
+                                edited(); keyboard?.hide()
+                            }, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(venue.name, style = MaterialTheme.typography.titleSmall)
+                                Text("${venue.address}, ${venue.city}", style = MaterialTheme.typography.bodyMedium)
+                                venue.distanceMiles?.let { Text(String.format(Locale.US, "%.1f mi away", it), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
+                            }
+                        }
+                    }
+                    if (!venueLoading && venueError == null && businesses.isEmpty()) item { Text("No matching venues. Change the search, expand the distance, or propose a new venue.") }
+                    if (hasMoreBusinesses || businesses.size > 8) item { Text("Keep typing to narrow these suggestions.", style = MaterialTheme.typography.bodySmall) }
+                }
             }
-            item { FormSection("03", "Date & time", "Enter the times at the venue. Everyone sees the event in their own local time.") }
+            item { FormSection("Date & time", "Enter the times at the venue. Everyone sees the event in their own local time.") }
             item { OutlinedButton(onClick = { showDate = true }, enabled = !submitting) { Text("Event date: $date") } }
-            item { Entry("Start time (HH:mm, 24-hour)", if (allDay) "00:00" else startTime, 5, !submitting && !allDay) { startTime = it; edited() } }
-            item { Entry("End time (HH:mm, 24-hour)", if (allDay) "23:59" else endTime, 5, !submitting && !allDay) { endTime = it; edited() } }
+            item { OutlinedButton(onClick = { editingTime = "start" }, enabled = !submitting && !allDay, modifier = Modifier.fillMaxWidth()) { Text("Start time: ${LocalTime.parse(if (allDay) "00:00" else startTime).format(displayTime)}") } }
+            item { OutlinedButton(onClick = { editingTime = "end" }, enabled = !submitting && !allDay, modifier = Modifier.fillMaxWidth()) { Text("End time: ${LocalTime.parse(if (allDay) "23:59" else endTime).format(displayTime)}") } }
             item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.weight(1f)) {
                     Checkbox(checked = endsNextDay && !allDay, onCheckedChange = { endsNextDay = it; edited() }, enabled = !submitting && !allDay)
@@ -243,7 +302,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
                     Text("All Day", modifier = Modifier.weight(1f))
                 }
             } }
-            item { FormSection("04", "Price & details", "Make costs and participation requirements clear.") }
+            item { FormSection("Price & details", "Make costs and participation requirements clear.") }
             item { Row { Checkbox(checked = unknownPrice, onCheckedChange = { unknownPrice = it; edited() }, enabled = !submitting); Text("Price unknown") } }
             if (!unknownPrice) item { Entry("Price in USD (0 for free)", price, 11, !submitting) { price = it; edited() } }
             item { Entry("Offer or price details (optional)", offer, 2000, !submitting) { offer = it; edited() } }
@@ -251,6 +310,18 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
             if (message != null) item { Text(message.orEmpty(), color = MaterialTheme.colorScheme.error) }
             item { Button(onClick = { submit() }, enabled = !submitting && !resolving && !loading && referenceError == null) { Text(if (submitting) "Sending…" else "Submit for review") } }
         }
+    }
+    if (editingTime != null) {
+        val time = LocalTime.parse(if (editingTime == "start") startTime else endTime)
+        val picker = rememberTimePickerState(initialHour = time.hour, initialMinute = time.minute, is24Hour = false)
+        AlertDialog(onDismissRequest = { editingTime = null }, title = { Text(if (editingTime == "start") "Start time" else "End time") },
+            text = { TimeInput(state = picker) }, confirmButton = {
+                TextButton(onClick = {
+                    val chosen = String.format(Locale.US, "%02d:%02d", picker.hour, picker.minute)
+                    if (editingTime == "start") startTime = chosen else endTime = chosen
+                    edited(); editingTime = null
+                }) { Text("Apply time") }
+            }, dismissButton = { TextButton(onClick = { editingTime = null }) { Text("Cancel") } })
     }
     if (showDate) {
         val state = rememberDatePickerState(initialSelectedDateMillis = LocalDate.parse(date).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
@@ -267,17 +338,6 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, onDone: () -> Unit) {
 private fun Entry(label: String, value: String, max: Int, enabled: Boolean, multiline: Boolean = false, change: (String) -> Unit) {
     OutlinedTextField(value = value, onValueChange = { change(it.take(max)) }, label = { Text(label) }, enabled = enabled,
         modifier = Modifier.fillMaxWidth(), singleLine = !multiline, minLines = if (multiline) 3 else 1)
-}
-
-@Composable
-private fun Choice(label: String, selected: String, options: List<Pair<String, String>>, enabled: Boolean, select: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { expanded = true }, enabled = enabled) { Text("$label: $selected") }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { (id, name) -> DropdownMenuItem(text = { Text(name) }, onClick = { select(id); expanded = false }) }
-        }
-    }
 }
 
 private fun submissionError(error: Exception): String {

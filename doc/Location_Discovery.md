@@ -38,7 +38,7 @@ The checked-in sample_data.sql and refresh_mock_catalog.sql use the new schema, 
 
 - GET /api/v1/experiences requires latitude and longitude; radiusMiles defaults to 10. Responses include distanceMiles and venue coordinates. When a caller omits timeZone, viewer day boundaries are derived from its coordinates. Missing coordinates return LOCATION_REQUIRED; areaId returns AREAS_REMOVED.
 - categoryIds accepts a comma-separated set of up to 20 distinct category UUIDs. The former singular categoryId remains supported for older callers, but cannot be combined with categoryIds.
-- GET /api/v1/businesses accepts q and optional latitude/longitude together. With coordinates it sorts venues by distance. Coordinate-free access supports private dashboard matching.
+- GET /api/v1/businesses accepts q, latitude/longitude and radiusMiles for nearby suggestions. searchAll=true explicitly removes the radius restriction and supports coordinate-free dashboard matching. Matches include venue name, street or city.
 - GET /api/v1/areas returns 410 with a migration message.
 - POST /api/v1/submissions proposed venues require coordinates. event.schedule.timeZone may be omitted; the server derives and overrides it. allDay defaults to false.
 
@@ -55,3 +55,5 @@ Discovery still evaluates the small curated catalog in memory after SQL search/c
 7. Test rejection, retries, missing coordinates, disabled phone location, and an old queued submission.
 
 Backend automated coverage includes fresh schema/seeds, legacy upgrades and reruns, time/distance-before-limit, antimeridian calculations, category unions, all-day constraints/publication, derived venue zones, private review/authentication, and existing discovery/recurrence behavior. Android compilation/device acceptance must run in Android Studio if the build environment cannot download Gradle; Kotlin syntax parsing is only an additional check, not a replacement for compilation.
+
+The current appearance, cross-session filters, AM/PM display, suggestion controls and realistic mascot are specified in [Preferences_and_Venue_Search.md](Preferences_and_Venue_Search.md).

@@ -23,7 +23,13 @@ interface HyenaApi {
     ): ExperienceResponse
 
     @GET("api/v1/businesses")
-    suspend fun getBusinesses(@Query("q") query: String = "", @Query("latitude") latitude: Double? = null, @Query("longitude") longitude: Double? = null): BusinessResponse
+    suspend fun getBusinesses(
+        @Query("q") query: String = "",
+        @Query("latitude") latitude: Double? = null,
+        @Query("longitude") longitude: Double? = null,
+        @Query("radiusMiles") radiusMiles: Int? = null,
+        @Query("searchAll") searchAll: Boolean = false
+    ): BusinessResponse
 
     @POST("api/v1/submissions")
     suspend fun submitEvent(@Body body: EventSubmissionRequest): SubmissionResponse

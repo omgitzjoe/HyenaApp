@@ -1,7 +1,6 @@
 package com.example.hyenaapp.ui.theme
 
 import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -15,13 +14,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF285847), onPrimary = Color.White,
-    primaryContainer = Color(0xFFDCEDE2), onPrimaryContainer = Color(0xFF163C2D),
+    primary = Color(0xFF245B48), onPrimary = Color.White,
+    primaryContainer = Color(0xFFE0F0E4), onPrimaryContainer = Color(0xFF163C2D),
     secondary = Color(0xFF735624), onSecondary = Color.White,
-    secondaryContainer = Color(0xFFF8E7C6), onSecondaryContainer = Color(0xFF49340F),
-    tertiary = Color(0xFF53665D), background = Color(0xFFF6F7F2),
+    secondaryContainer = Color(0xFFFFEDCD), onSecondaryContainer = Color(0xFF49340F),
+    tertiary = Color(0xFF53665D), background = Color(0xFFFBF9F4),
     onBackground = Color(0xFF1D2D25), surface = Color.White,
-    onSurface = Color(0xFF1D2D25), surfaceVariant = Color(0xFFECF0E9),
+    onSurface = Color(0xFF1D2D25), surfaceVariant = Color(0xFFF0F2E9),
     onSurfaceVariant = Color(0xFF4E6256), outline = Color(0xFF738478),
     outlineVariant = Color(0xFFDCE4DA)
 )
@@ -39,7 +38,7 @@ private val DarkColors = darkColorScheme(
 
 @Composable
 fun HyenaAppTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = false,
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {

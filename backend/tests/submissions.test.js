@@ -82,7 +82,7 @@ test('public submission throttling returns 429',async()=>{assert.equal((await re
 test('venue search orders located active venues and rejects incomplete coordinates',async()=>{
  const r=await request('/api/v1/businesses?latitude=43.8231&longitude=-111.7924');assert.equal(r.status,200);assert.equal(r.body.items.length,1);assert.equal(r.body.items[0].timeZone,'America/Boise');
  assert.equal((await request('/api/v1/businesses?latitude=43')).status,400);
- assert.equal((await request('/api/v1/businesses?q='+encodeURIComponent('%'))).body.items.length,0);
+ assert.equal((await request('/api/v1/businesses?searchAll=true&q='+encodeURIComponent('%'))).body.items.length,0);
 });
 test('queue requires sign-in; wrong password and wrong-origin login are rejected',async()=>{
  assert.equal((await request('/admin/api/submissions')).status,401);
@@ -228,4 +228,33 @@ test('legacy queued venues need a verified location before approval and can supp
  await db.query("UPDATE event_submissions SET payload=payload #- '{venue,proposal,latitude}' #- '{venue,proposal,longitude}' WHERE id=$1",[item.id]);
  assert.equal((await request('/admin/api/submissions/'+item.id+'/approve',{},true)).status,400);
  assert.equal((await request('/admin/api/submissions/'+item.id+'/approve',{latitude:43.8231,longitude:-111.7924},true)).status,200);
+});
+
+test('venue suggestions filter radius before limiting and Search all includes distant matches',async()=>{
+ const venues=[];
+ try {
+  for (const [name,latitude,longitude] of [['Radius venue close',43.8231,-111.7924],['Radius venue far',40.7128,-74.006]]) {
+   const id=randomUUID();venues.push(id);
+   await db.query("INSERT INTO businesses(id,name,address,city,latitude,longitude) VALUES ($1,$2,'Unique searchable street','Rexburg',$3,$4)",[id,name,latitude,longitude]);
+  }
+  const base='/api/v1/businesses?latitude=43.8231&longitude=-111.7924&radiusMiles=5&q=Radius';
+  const local=await request(base);assert.equal(local.status,200);assert.deepEqual(local.body.items.map(x=>x.name),['Radius venue close']);
+  const all=await request(base+'&searchAll=true');assert.equal(all.status,200);assert.equal(all.body.items.length,2);assert.ok(all.body.items[1].distanceMiles>5);
+  const address=await request('/api/v1/businesses?searchAll=true&q=Unique%20searchable');assert.equal(address.status,200);assert.equal(address.body.items.length,2);
+  for(const query of ['?q=Radius','?latitude=43&longitude=-111&radiusMiles=0','?latitude=43&longitude=-111&radiusMiles=101','?searchAll=invalid'])assert.equal((await request('/api/v1/businesses'+query)).status,400);
+ } finally {for(const id of venues)await db.query('DELETE FROM businesses WHERE id=$1',[id]);}
+});
+
+test('nearby venue suggestions apply the radius before the 50-venue response cap',async()=>{
+ const venues=[];
+ try {
+  for(let n=0;n<52;n++){
+   const id=randomUUID();venues.push(id);
+   await db.query("INSERT INTO businesses(id,name,address,city,latitude,longitude) VALUES ($1,$2,'1 Limit Lane','Fixture',40.7128,-74.006)",[id,'Cap test A far '+n]);
+  }
+  const close=randomUUID();venues.push(close);
+  await db.query("INSERT INTO businesses(id,name,address,city,latitude,longitude) VALUES ($1,'Cap test Z nearby','2 Limit Lane','Fixture',43.8231,-111.7924)",[close]);
+  const r=await request('/api/v1/businesses?latitude=43.8231&longitude=-111.7924&radiusMiles=5&q=Cap%20test');
+  assert.equal(r.status,200);assert.deepEqual(r.body.items.map(x=>x.id),[close]);assert.equal(r.body.hasMore,false);
+ }finally{for(const id of venues)await db.query('DELETE FROM businesses WHERE id=$1',[id]);}
 });

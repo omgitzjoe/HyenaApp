@@ -19,8 +19,8 @@ class SavedExperienceCodecTest {
         val saved = SavedExperienceCodec.toggle(emptyList(), event)
         val restored = SavedExperienceCodec.decode(SavedExperienceCodec.encode(saved))
         assertEquals(listOf(event), restored)
-        assertEquals("Wed, Oct 28 · 20:00–21:00", displaySchedule(restored.single(), "America/Denver"))
-        assertEquals("Wed, Oct 28 · 22:00–23:00 · America/New_York", displaySchedule(restored.single(), "America/New_York"))
+        assertEquals("Wed, Oct 28 · 8:00 PM–9:00 PM", displaySchedule(restored.single(), "America/Denver"))
+        assertEquals("Wed, Oct 28 · 10:00 PM–11:00 PM", displaySchedule(restored.single(), "America/New_York"))
     }
 
     @Test
