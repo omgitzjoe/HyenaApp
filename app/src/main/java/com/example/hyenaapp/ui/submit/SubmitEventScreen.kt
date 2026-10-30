@@ -278,7 +278,7 @@ private fun submissionError(error: Exception): String {
             val detail = JsonParser.parseString(error.response()?.errorBody()?.string().orEmpty()).asJsonObject.getAsJsonObject("error")
             val issues = detail.getAsJsonArray("details")?.map { it.asJsonObject.get("message").asString }?.take(4)?.joinToString("\n")
             return issues ?: detail.get("message").asString
-        } catch (error: Exception) { return "Submission failed (HTTP ${error.code()}). Please retry." }
+        } catch (parseError: Exception) { return "Submission failed (HTTP ${error.code()}). Please retry." }
     }
     return "Couldn't confirm the submission. Check your connection and retry without editing to avoid a duplicate."
 }
