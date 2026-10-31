@@ -25,9 +25,12 @@ fun ExperienceDetailsScreen(
     savingEnabled: Boolean = true,
     onToggleSave: () -> Unit = {},
     latitude: Double? = null,
-    longitude: Double? = null
+    longitude: Double? = null,
+    eventId: String = "",
+    priceLabel: String = "Price unknown"
 ) {
     val context = LocalContext.current
+    var reportOpen by remember { mutableStateOf(false) }
     var directionsError by remember { mutableStateOf<String?>(null) }
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -36,7 +39,14 @@ fun ExperienceDetailsScreen(
         TextButton(onClick = onBack) { Text("Back to experiences") }
         PageHeader("Experience / Details", title, businessName)
         DetailSection("When", schedule)
-        DetailSection("Price & offer", offer)
+        DetailSection("Price & offer", "$priceLabel\n$offer")
+        OutlinedButton(onClick = {
+            val map = if (latitude != null && longitude != null) "\nhttps://www.google.com/maps/search/?api=1&query=$latitude,$longitude" else ""
+            val text = "$title\n$businessName\n$schedule\n$priceLabel\n$offer$map\nFound on Hyena — community plans, no paid placement."
+            try { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,text), "Share event")) }
+            catch (error: ActivityNotFoundException) { directionsError = "No sharing app is available." }
+        }, modifier = Modifier.fillMaxWidth()) { Text("Share event") }
+        if (eventId.isNotBlank()) TextButton(onClick = { reportOpen = true }) { Text("Report incorrect details") }
         if (latitude != null && longitude != null && latitude.isFinite() && longitude.isFinite() && latitude in -90.0..90.0 && longitude in -180.0..180.0) {
             OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
                 val destination = Uri.encode("$latitude,$longitude ($businessName)")
@@ -56,6 +66,7 @@ fun ExperienceDetailsScreen(
         }
         Text("Times are shown in your local time. Confirm availability with the venue before visiting.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+    if (reportOpen) EventReportDialog(eventId, onDismiss = { reportOpen = false })
 }
 
 @Composable

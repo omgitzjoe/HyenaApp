@@ -66,8 +66,18 @@ async function select(id){
     }
     approve.addEventListener('click',()=>decision('approve'));reject.addEventListener('click',()=>decision('reject'));const buttons=element('div',undefined,'button-row');buttons.append(approve,reject);actions.append(buttons);detail.append(actions);
 }
-$('login-form').addEventListener('submit',async event=>{event.preventDefault();$('login-button').disabled=true;notice();try{const session=await api('/admin/api/login',{method:'POST',body:JSON.stringify({username:$('login-username').value,password:$('login-password').value})});$('login-password').value='';showReview(session);await referenceData();await loadQueue();}catch(error){notice(error.message);}finally{$('login-button').disabled=false;}});
+$('login-form').addEventListener('submit',async event=>{event.preventDefault();$('login-button').disabled=true;notice();try{const session=await api('/admin/api/login',{method:'POST',body:JSON.stringify({username:$('login-username').value,password:$('login-password').value})});$('login-password').value='';showReview(session);await referenceData();await loadQueue();await loadReports();}catch(error){notice(error.message);}finally{$('login-button').disabled=false;}});
 $('logout').addEventListener('click',async()=>{try{await api('/admin/api/logout',{method:'POST',body:'{}'});showLogin();notice('Signed out.',true);}catch(error){notice(error.message);}});
-$('refresh').addEventListener('click',async()=>{notice();await referenceData();await loadQueue();});$('more').addEventListener('click',()=>loadQueue(true));
+$('refresh').addEventListener('click',async()=>{notice();await referenceData();await loadQueue();await loadReports();});$('more').addEventListener('click',()=>loadQueue(true));
 document.querySelectorAll('[data-status]').forEach(button=>button.addEventListener('click',()=>{if(busy)return;status=button.dataset.status;selectedId=null;document.querySelectorAll('[data-status]').forEach(x=>x.classList.toggle('active',x===button));notice();loadQueue();}));
-(async()=>{try{const session=await api('/admin/api/session');showReview(session);await referenceData();await loadQueue();}catch(error){showLogin();if(!/Sign in|again/.test(error.message))notice(error.message);}})();
+(async()=>{try{const session=await api('/admin/api/session');showReview(session);await referenceData();await loadQueue();await loadReports();}catch(error){showLogin();if(!/Sign in|again/.test(error.message))notice(error.message);}})();
+
+async function loadReports(){
+ const generation=authGeneration;
+ try { const data=await api('/admin/api/reports');if(generation!==authGeneration)return;
+  $('reports').replaceChildren();
+  if(!data.items.length)$('reports').append(element('p','No open corrections.'));
+  data.items.forEach(report=>{const card=element('div',undefined,'queue-item');card.append(element('strong',report.title),element('p',report.businessName+' · '+report.reason.replaceAll('_',' ')),element('p',report.details||'No additional details'),element('small','Event ID: '+report.experienceId));const resolve=element('button','Mark reviewed and resolve');resolve.addEventListener('click',async()=>{resolve.disabled=true;try{await api('/admin/api/reports/'+report.id+'/resolve',{method:'POST',body:'{}'});await loadReports();}catch(error){notice(error.message);resolve.disabled=false;}});card.append(resolve);$('reports').append(card);});
+ }catch(error){notice(error.message);}
+}
+$('reports-refresh').addEventListener('click',loadReports);

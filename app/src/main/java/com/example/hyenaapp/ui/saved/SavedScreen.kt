@@ -33,7 +33,8 @@ fun SavedScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item { PageHeader("Your collection / Saved", "Keep the good ones.", "Your shortlist, saved on this phone. Check current details before heading out.") }
-        item { Text("Reminders use the start time saved with each event. Android may delay delivery to save battery. Check current event details if plans change.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("Reminders use the start time saved with each event. Enable precise timing below for timely reminders. Without it, Android may delay delivery. Check current event details if plans change.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { NotificationDiagnostics() }
         when {
             loading -> item { CircularProgressIndicator() }
             !available -> item { Text("Saved experiences could not be loaded. Use Retry saved storage above.") }
@@ -42,6 +43,7 @@ fun SavedScreen(
                 val experience = original.copy(schedule = displaySchedule(original, timeZone))
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 ExperienceCard(
+                    categories = experience.categories.orEmpty(), priceLabel = experience.priceLabel ?: "Price unknown",
                     title = experience.title, businessName = experience.businessName,
                     schedule = experience.schedule, offer = experience.offer, distanceMiles = experience.distanceMiles,
                     isSaved = true, savingEnabled = savingEnabled,

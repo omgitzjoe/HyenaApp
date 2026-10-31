@@ -27,11 +27,16 @@ internal fun ReminderControls(experience: Experience, enabled: Boolean) {
     var expanded by remember { mutableStateOf(false) }
     var pendingMinutes by remember { mutableStateOf<Int?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    var precise by remember { mutableStateOf(reminders.exactAllowed()) }
+    var scheduled by remember(experience.id) { mutableStateOf(reminders.scheduledTime(experience.id)) }
     var allowed by remember { mutableStateOf(reminders.notificationsAllowed()) }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner, experience.id) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                precise = reminders.exactAllowed()
+                reminders.restore()
+                scheduled = reminders.scheduledTime(experience.id)
                 allowed = reminders.notificationsAllowed()
                 minutes = reminders.minutes(experience.id)
             }
@@ -40,7 +45,7 @@ internal fun ReminderControls(experience: Experience, enabled: Boolean) {
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
     fun setReminder(value: Int) {
-        if (reminders.schedule(experience, value)) { minutes = value; message = "Reminder saved on this phone." }
+        if (reminders.schedule(experience, value)) { minutes = value; scheduled = reminders.scheduledTime(experience.id); message = "Reminder saved on this phone." }
         else message = "Choose a shorter lead time so the reminder is still in the future, and check notifications are enabled."
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -69,7 +74,8 @@ internal fun ReminderControls(experience: Experience, enabled: Boolean) {
                 }
             }
         }
-        if (minutes != null) TextButton(enabled = enabled, onClick = { reminders.cancel(experience.id); minutes = null; message = "Reminder removed." }) { Text("Remove reminder") }
+        if (minutes != null) TextButton(enabled = enabled, onClick = { reminders.cancel(experience.id); minutes = null; scheduled = null; message = "Reminder removed." }) { Text("Remove reminder") }
+        if (minutes != null) scheduled?.let { Text("Scheduled for $it · ${if (precise) "Precise timing enabled" else "Approximate timing"}", style = MaterialTheme.typography.bodySmall) }
         if (!future) Text("Reminders need a saved event with an upcoming start time.", style = MaterialTheme.typography.bodySmall)
         if (!allowed) TextButton(onClick = {
             context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))

@@ -105,9 +105,9 @@ fun ExploreScreen(
                 item {
                     Text(
                         text = if (query.isEmpty()) {
-                            "No experiences match these filters. Try Clear filters or All dates."
+                            "Nothing nearby matches these filters. Try a wider radius, another day, or Clear filters."
                         } else {
-                            "No experiences match your search and filters. Try Clear filters."
+                            "Nothing nearby matches your search. Try fewer keywords, a wider radius, or another day."
                         }
                     )
                 }
@@ -119,7 +119,8 @@ fun ExploreScreen(
                     key = { experience -> experience.id }
                 ) { experience ->
                     ExperienceCard(
-                        title = experience.title,
+                        categories = experience.categories.orEmpty(), priceLabel = experience.priceLabel ?: "Price unknown",
+                    title = experience.title,
                         businessName = experience.businessName,
                         schedule = experience.schedule, distanceMiles = experience.distanceMiles,
                         offer = experience.offer,

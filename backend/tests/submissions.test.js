@@ -27,7 +27,7 @@ async function request(route,body,auth=false,extra={}){
 async function submit(body=event()){const r=await request('/api/v1/submissions',body);assert.equal(r.status,201,JSON.stringify(r.body));return r.body.item;}
 before(async()=>{
  db=new PGlite();await db.waitReady;
- for(const f of ['initial_schema.sql','002_event_submissions.sql'])await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations',f),'utf8'));
+ for(const f of ['initial_schema.sql','002_event_submissions.sql','004_event_reports.sql'])await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations',f),'utf8'));
  // Apply twice to ensure the migration is repeat-safe.
  await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations/002_event_submissions.sql'),'utf8'));
  ids.area=randomUUID();ids.business=randomUUID();ids.category=randomUUID();ids.closed=randomUUID();
@@ -43,6 +43,8 @@ before(async()=>{
  app.use('/api/v1/curator',require('../routes/curator'));
  app.use('/api/v1/submissions',createSubmissionRouter({pool,logger:quiet,limiter:skip}));
  app.use('/limited',createSubmissionRouter({pool,logger:quiet,limiter:requestLimit(1,60000)}));
+ app.use('/api/v1/reports',require('../routes/reports').createReportRouter({pool,logger:quiet,limiter:skip}));
+ app.use('/limited-reports',require('../routes/reports').createReportRouter({pool,logger:quiet,limiter:requestLimit(1,60000)}));
  app.use('/api/v1/businesses',createBusinessRouter({pool,logger:quiet}));
  app.use('/admin',createAdminRouter({pool,env,logger:quiet,loginLimiter:skip}));
  server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});base='http://127.0.0.1:'+server.address().port;
@@ -257,4 +259,23 @@ test('nearby venue suggestions apply the radius before the 50-venue response cap
   const r=await request('/api/v1/businesses?latitude=43.8231&longitude=-111.7924&radiusMiles=5&q=Cap%20test');
   assert.equal(r.status,200);assert.deepEqual(r.body.items.map(x=>x.id),[close]);assert.equal(r.body.hasMore,false);
  }finally{for(const id of venues)await db.query('DELETE FROM businesses WHERE id=$1',[id]);}
+});
+
+test('community corrections validate input and require authenticated CSRF-protected review',async()=>{
+ const submission=await submit();
+ assert.equal((await request('/admin/api/submissions/'+submission.id+'/approve',{},true)).status,200);
+ const id=(await db.query('SELECT published_experience_id AS id FROM event_submissions WHERE id=$1',[submission.id])).rows[0].id;
+ assert.equal((await request('/api/v1/reports',{experienceId:id,reason:'WRONG_TIME',details:'x'.repeat(1001)})).status,400);
+ assert.equal((await request('/api/v1/reports',{experienceId:randomUUID(),reason:'OTHER'})).status,404);
+ assert.equal((await request('/api/v1/reports',{experienceId:id,reason:'BAD'})).status,400);
+ const report=await request('/api/v1/reports',{experienceId:id,reason:'WRONG_TIME',details:'Time changed to 7 PM.'});assert.equal(report.status,201);
+ assert.equal((await db.query('SELECT is_active FROM experiences WHERE id=$1',[id])).rows[0].is_active,true);
+ assert.equal((await request('/admin/api/reports')).status,401);
+ const queue=await request('/admin/api/reports',undefined,true);assert.equal(queue.status,200);assert.ok(queue.body.items.some(x=>x.id===report.body.id));
+ assert.equal((await request('/admin/api/reports/'+report.body.id+'/resolve',{},false,{Cookie:session.cookie})).status,403);
+ assert.equal((await request('/admin/api/reports/'+report.body.id+'/resolve',{},true)).status,200);
+ assert.equal((await request('/admin/api/reports/'+report.body.id+'/resolve',{},true)).status,404);
+ assert.ok(!(await request('/admin/api/reports',undefined,true)).body.items.some(x=>x.id===report.body.id));
+ assert.equal((await request('/limited-reports',{experienceId:id,reason:'OTHER'})).status,201);
+ assert.equal((await request('/limited-reports',{experienceId:id,reason:'OTHER'})).status,429);
 });

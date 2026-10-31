@@ -82,7 +82,7 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
         savesReady = false
         try {
             savedExperiences = savedStore.load()
-            reminders.retainSaved(savedExperiences.map { it.id }.toSet())
+            reminders.updateSaved(savedExperiences)
             reminders.restore()
             savedError = null
             savesReady = true
@@ -143,7 +143,11 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
     var detailEnd by rememberSaveable { mutableStateOf<String?>(null) }
     var detailLatitude by rememberSaveable { mutableStateOf<Double?>(null) }
     var detailLongitude by rememberSaveable { mutableStateOf<Double?>(null) }
+    var detailCategories by rememberSaveable { mutableStateOf("[]") }
+    var detailPrice by rememberSaveable { mutableStateOf("Price unknown") }
     val openExperience: (Experience) -> Unit = {
+        detailCategories = com.google.gson.Gson().toJson(it.categories.orEmpty())
+        detailPrice = it.priceLabel ?: "Price unknown"
         detailLatitude = it.latitude
         detailLongitude = it.longitude
         detailId = it.id
@@ -219,8 +223,9 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
                 if (showingSubmission) {
                     SubmitEventScreen(nearby = nearby, radiusMiles = radiusMiles, onDone = { showingSubmission = false })
                 } else if (showingDetails) {
-                    val experience = Experience(detailId, detailTitle, detailBusiness, detailSchedule, detailOffer, detailStart, detailEnd, latitude = detailLatitude, longitude = detailLongitude)
+                    val experience = Experience(detailId, detailTitle, detailBusiness, detailSchedule, detailOffer, detailStart, detailEnd, latitude = detailLatitude, longitude = detailLongitude, priceLabel = detailPrice, categories = com.google.gson.Gson().fromJson(detailCategories, Array<com.example.hyenaapp.domain.model.EventCategory>::class.java).toList())
                     ExperienceDetailsScreen(
+                        eventId = detailId, priceLabel = detailPrice,
                         title = detailTitle, businessName = detailBusiness,
                         latitude = detailLatitude, longitude = detailLongitude,
                         schedule = displaySchedule(experience, timeZone), offer = detailOffer,

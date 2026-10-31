@@ -41,7 +41,7 @@ internal object SavedExperienceCodec {
                 item.occurrenceStart?.let { Instant.parse(it) }
                 item.occurrenceEnd?.let { Instant.parse(it) }
             }
-            return items.distinctBy { it.id }
+            return items.distinctBy { it.id }.map { it.copy(categories = it.categories.orEmpty(), priceLabel = it.priceLabel ?: "Price unknown") }
         } catch (error: Exception) {
             throw IOException("Unable to read saved experiences", error)
         }

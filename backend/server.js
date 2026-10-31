@@ -27,6 +27,7 @@ app.get("/api/v1/areas", (req, res) => res.status(410).json({ error: { code: "AR
 app.use("/api/v1/curator", curatorRoutes);
 app.use("/api/v1/businesses", createBusinessRouter({ pool }));
 app.use("/api/v1/submissions", createSubmissionRouter({ pool }));
+app.use("/api/v1/reports", require("./routes/reports").createReportRouter({ pool }));
 app.use("/admin", createAdminRouter({ pool }));
 app.use((error, req, res, next) => {
     if (error.type === "entity.too.large") return res.status(413).json({ error: { code: "BODY_TOO_LARGE", message: "The request is too large." } });

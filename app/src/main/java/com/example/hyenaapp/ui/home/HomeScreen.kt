@@ -71,7 +71,7 @@ fun HomeScreen(
         modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { PageHeader("Hyena / Today", "Good plans, close by.", "Today’s next 12 experiences. Soonest first, with distance breaking time ties.", mascot = true) }
+        item { PageHeader("Hyena / Today", "Good plans, close by.", "Community plans, never paid placement. Today’s next 12, ordered by time and distance.", mascot = true) }
         item { locationControls() }
         item {
             Button(onClick = { onRefreshLocation(); reloadKey++ }, enabled = !loading) { Text("Refresh") }
@@ -85,6 +85,7 @@ fun HomeScreen(
             experiences.isEmpty() -> item { Text("No more experiences today in this location. Try another date or a wider distance in Explore.") }
             else -> items(experiences, key = { it.id }) { experience ->
                 ExperienceCard(
+                    categories = experience.categories.orEmpty(), priceLabel = experience.priceLabel ?: "Price unknown",
                     title = experience.title, businessName = experience.businessName,
                     schedule = experience.schedule, distanceMiles = experience.distanceMiles, offer = experience.offer,
                     onClick = { onExperienceClick(experience) },

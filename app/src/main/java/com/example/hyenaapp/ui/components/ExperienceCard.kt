@@ -5,6 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import com.example.hyenaapp.domain.model.EventCategory
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -21,7 +24,9 @@ fun ExperienceCard(
     onClick: () -> Unit = {},
     isSaved: Boolean = false,
     savingEnabled: Boolean = true,
-    onToggleSave: (() -> Unit)? = null
+    onToggleSave: (() -> Unit)? = null,
+    categories: List<EventCategory> = emptyList(),
+    priceLabel: String = "Price unknown"
 ) {
     Card(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -30,6 +35,11 @@ fun ExperienceCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
+        if (categories.isNotEmpty()) Row(Modifier.fillMaxWidth().height(5.dp)) {
+            categories.distinctBy { it.id }.sortedBy { it.name }.forEach { category ->
+                Surface(color = categoryColor(category), modifier = Modifier.weight(1f).fillMaxHeight()) {}
+            }
+        }
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(businessName, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -40,9 +50,15 @@ fun ExperienceCard(
                 }
             }
             Text(title, style = MaterialTheme.typography.titleLarge)
+            if (categories.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                categories.distinctBy { it.id }.sortedBy { it.name }.forEach { CategoryChip(it) }
+            }
+            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
+                Text(priceLabel, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("WHEN", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                Text(schedule, style = MaterialTheme.typography.bodyMedium)
+                Text(schedule, style = MaterialTheme.typography.titleMedium)
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {

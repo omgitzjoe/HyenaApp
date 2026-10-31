@@ -44,7 +44,8 @@ object ExperienceRepository {
                 offer = offerLabel,
                 occurrenceStart = dto.nextOccurrence?.startsAt,
                 occurrenceEnd = dto.nextOccurrence?.endsAt,
-                distanceMiles = dto.distanceMiles, latitude = dto.latitude, longitude = dto.longitude
+                distanceMiles = dto.distanceMiles, latitude = dto.latitude, longitude = dto.longitude,
+                categories = dto.categories, priceLabel = priceLabel(dto.priceAmount, dto.currency)
             )
         }
     }
@@ -73,4 +74,11 @@ fun displaySchedule(experience: Experience, timeZone: String): String {
     return if (experience.occurrenceStart != null && experience.occurrenceEnd != null) {
         formatInterval(experience.occurrenceStart, experience.occurrenceEnd, ZoneId.of(timeZone))
     } else experience.schedule
+}
+
+internal fun priceLabel(amount: String?, currency: String?): String {
+    val value = amount?.toBigDecimalOrNull() ?: return "Price unknown"
+    if (value.signum() == 0) return "Free"
+    val number = value.stripTrailingZeros().toPlainString()
+    return if (currency == "USD") "$$number" else "$number ${currency.orEmpty()}".trim()
 }

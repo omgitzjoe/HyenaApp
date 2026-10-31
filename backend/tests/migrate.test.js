@@ -36,7 +36,7 @@ test('startup migrates an existing area database without losing venues, schedule
         await db.query("UPDATE businesses SET time_zone='UTC'");
         await migrate(pool);
         assert.equal((await db.query('SELECT time_zone FROM businesses')).rows[0].time_zone,'UTC');
-        assert.equal((await db.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n,2);
+        assert.equal((await db.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n,3);
         assert.equal(releases,2);
     } finally { await db.close(); }
 });

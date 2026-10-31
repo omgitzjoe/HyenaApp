@@ -61,6 +61,15 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
             next();
         }catch(error){logger.error('Admin session failed:',error.message);res.status(500).json({error:{code:'SESSION_UNAVAILABLE',message:'Unable to verify administrator session.'}});}
     });
+    router.get('/api/reports',async(req,res)=>{
+        try { const result=await pool.query(`SELECT r.id,r.reason,r.details,r.created_at AS "createdAt",e.id AS "experienceId",e.title,b.name AS "businessName" FROM event_reports r JOIN experiences e ON e.id=r.experience_id JOIN businesses b ON b.id=e.business_id WHERE r.status='OPEN' ORDER BY r.created_at,r.id LIMIT 100`);res.json({items:result.rows}); }
+        catch(error){logger.error('Report queue failed:',error.message);res.status(500).json({error:{message:'Unable to load event reports.'}});}
+    });
+    router.post('/api/reports/:id/resolve',async(req,res)=>{
+        if(!z.uuid().safeParse(req.params.id).success)return res.status(400).json({error:{message:'Invalid report ID.'}});
+        try {const result=await pool.query("UPDATE event_reports SET status='RESOLVED',reviewed_at=CURRENT_TIMESTAMP,reviewed_by=$2 WHERE id=$1 AND status='OPEN' RETURNING id",[req.params.id,req.admin.username]);if(!result.rows.length)return res.status(404).json({error:{message:'Report is already resolved or unavailable.'}});res.json({status:'RESOLVED'});}
+        catch(error){logger.error('Report resolution failed:',error.message);res.status(500).json({error:{message:'Unable to resolve report.'}});}
+    });
     router.get('/api/session',(req,res)=>res.json({username:req.admin.username,csrfToken:req.admin.csrfToken}));
     router.post('/api/logout',async(req,res)=>{
         try{await pool.query('DELETE FROM admin_sessions WHERE token_hash=$1',[req.admin.tokenHash]);res.clearCookie(cookieName,{httpOnly:true,sameSite:'strict',secure:env.NODE_ENV==='production',path:'/admin'});res.json({status:'signed-out'});}

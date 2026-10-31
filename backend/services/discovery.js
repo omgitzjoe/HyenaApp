@@ -15,6 +15,7 @@ async function discoverExperiences(pool, query, now = new Date(), logger = conso
     // This in-memory stage is intended for the curated prototype dataset.
     const result = await pool.query(`
         SELECT e.id, e.title, e.description, b.latitude, b.longitude, b.name AS "businessName", b.city,
+            COALESCE((SELECT json_agg(json_build_object('id',c.id,'name',c.name,'slug',c.slug) ORDER BY c.name,c.id) FROM experience_categories ec JOIN categories c ON c.id=ec.category_id WHERE ec.experience_id=e.id), '[]'::json) AS categories,
             e.price_amount AS "priceAmount", e.currency, e.price_label AS "offer",
             s.all_day AS "allDay", s.kind AS "scheduleKind", s.start_date::text AS "startDate",
             s.end_date::text AS "endDate", s.start_time AS "startTime",

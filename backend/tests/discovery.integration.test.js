@@ -270,3 +270,9 @@ test('Home and Explore choose soonest within radius before limiting, then distan
         for(const id of venues)await db.query('DELETE FROM businesses WHERE id=$1',[id]);
     }
 });
+
+test('discovery includes all category labels for segmented community cards',async()=>{
+ const result=await get('?q=Zulu');assert.equal(result.status,200);
+ assert.deepEqual(result.body.items[0].categories.map(c=>c.name),['Food','Music']);
+ assert.ok(result.body.items[0].categories.every(c=>c.id && c.slug));
+});

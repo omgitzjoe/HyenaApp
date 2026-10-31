@@ -34,7 +34,13 @@ interface HyenaApi {
     @POST("api/v1/submissions")
     suspend fun submitEvent(@Body body: EventSubmissionRequest): SubmissionResponse
 
+    @POST("api/v1/reports")
+    suspend fun reportEvent(@Body body: EventReportRequest): EventReportResponse
+
     @GET("api/v1/categories")
     suspend fun getCategories(): CategoryResponse
 
 }
+
+data class EventReportRequest(val experienceId: String, val reason: String, val details: String)
+data class EventReportResponse(val id: String, val status: String)

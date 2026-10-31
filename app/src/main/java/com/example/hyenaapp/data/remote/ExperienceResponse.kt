@@ -25,7 +25,8 @@ data class ExperienceDto(
     val distanceMiles: Double? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val allDay: Boolean = false
+    val allDay: Boolean = false,
+    val categories: List<com.example.hyenaapp.domain.model.EventCategory> = emptyList()
 )
 
 data class OccurrenceDto(
