@@ -10,7 +10,7 @@ async function api(path,options={}){
     if(!response.ok){if(response.status===401&&path!=='/admin/api/login')showLogin();throw Error(data.error?.message||'Request failed.');}
     return data;
 }
-function showLogin(){authGeneration++;csrf='';rows=[];selectedId=null;$('review-view').hidden=true;$('account').hidden=true;$('login-view').hidden=false;$('queue').replaceChildren();$('detail').replaceChildren();}
+function showLogin(){authGeneration++;csrf='';rows=[];selectedId=null;$('review-view').hidden=true;$('account').hidden=true;$('login-view').hidden=false;$('queue').replaceChildren();$('detail').replaceChildren();$('imports').replaceChildren();}
 function showReview(session){authGeneration++;csrf=session.csrfToken;$('username').textContent=session.username;$('account').hidden=false;$('login-view').hidden=true;$('review-view').hidden=false;}
 async function referenceData(){
     try{const categories=await api('/api/v1/categories');categoryNames=new Map(categories.items.map(x=>[x.id,x.name]));}
@@ -36,6 +36,10 @@ async function select(id){
     const facts=element('div',undefined,'facts');
     facts.append(fact('VENUE',proposal?proposal.name+'\n'+proposal.address+', '+proposal.city+'\nProposed venue · '+(proposal.latitude??'Location needed')+', '+(proposal.longitude??''):row.business?row.business.name+'\n'+row.business.address+', '+row.business.city+(row.business.isActive?'':'\nInactive venue'):venue.businessId+'\nVenue unavailable'));
     facts.append(fact('YOUR LOCAL TIME',row.occurrence?(s.allDay?'All Day at venue · ':'')+new Date(row.occurrence.startsAt).toLocaleString('en-US',{hour12:true})+' – '+new Date(row.occurrence.endsAt).toLocaleString('en-US',{hour12:true}):'Verify the venue location to preview local times.'));
+    if(event.sourceUrl) {
+        const link=sourceLink(event.sourceUrl);
+        if(link) detail.append(link);
+    }
     facts.append(fact('PRICE',event.priceAmount===null?'Price unknown':event.priceAmount+' '+event.currency),fact('CATEGORIES',event.categoryIds.map(x=>categoryNames.get(x)||x).join(', ')));
     if(event.offer)facts.append(fact('OFFER',event.offer));if(event.requirements)facts.append(fact('REQUIREMENTS',event.requirements));detail.append(facts,element('p','Reference '+row.id,'muted'));
     if(row.status!=='PENDING'){detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.reviewedAt).toLocaleString('en-US',{hour12:true}),'muted'));if(row.reviewNote)detail.append(fact('REVIEW NOTE',row.reviewNote));if(row.experienceId){const link=element('a','View published API entry');link.href='/api/v1/experiences/'+encodeURIComponent(row.experienceId);link.target='_blank';link.rel='noopener';detail.append(link);}return;}
@@ -81,3 +85,128 @@ async function loadReports(){
  }catch(error){notice(error.message);}
 }
 $('reports-refresh').addEventListener('click',loadReports);
+
+
+function sourceLink(url) {
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+        const link = element('a', 'View source event');
+        link.href = parsed.href;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        return link;
+    } catch { return null; }
+}
+
+function importField(form, labelText, value = '', type = 'text') {
+    const label = element('label', labelText);
+    const input = element('input');
+    input.type = type;
+    if (type === 'number') input.step = 'any';
+    input.value = value;
+    label.append(input);
+    form.append(label);
+    return input;
+}
+
+function renderImport(feed, item) {
+    const card = element('details', undefined, 'queue-item');
+    card.append(element('summary', item.title));
+    const schedule = item.schedule;
+    if (schedule) {
+        const time = schedule.allDay ? 'All day' : schedule.startTime.slice(0, 5) + '–' +
+            schedule.endTime.slice(0, 5) + (schedule.endsNextDay ? ' (next day)' : '') + ' Mountain time';
+        card.append(element('p', schedule.startDate + ' · ' + time));
+    }
+    card.append(element('p', item.venue || 'Venue missing from feed'));
+    const link = sourceLink(item.url);
+    if (link) card.append(link);
+    if (item.issue) card.append(element('p', item.issue));
+    if (item.queuedStatus) card.append(element('p', 'Already imported · ' + item.queuedStatus));
+    if (item.issue || item.queuedStatus) return card;
+
+    const form = element('form');
+    const category = element('select');
+    category.required = true;
+    category.append(new Option('Choose category', ''));
+    for (const [id, name] of categoryNames) category.append(new Option(name, id));
+    const categoryLabel = element('label', 'Category');
+    categoryLabel.append(category);
+    form.append(categoryLabel);
+
+    const query = importField(form, 'Find an existing venue');
+    const search = element('button', 'Find venue');
+    search.type = 'button';
+    const venue = element('select');
+    venue.append(new Option('Use new venue details below', ''));
+    const venueLabel = element('label', 'Existing venue');
+    venueLabel.append(venue);
+    form.append(search, venueLabel);
+    const proposal = element('fieldset');
+    proposal.append(element('legend', 'New venue · verify the address and coordinates'));
+    const name = importField(proposal, 'Venue name');
+    const address = importField(proposal, 'Address', item.venue);
+    const city = importField(proposal, 'City', item.city);
+    const latitude = importField(proposal, 'Latitude', item.latitude ?? '', 'number');
+    const longitude = importField(proposal, 'Longitude', item.longitude ?? '', 'number');
+    venue.addEventListener('change', () => { proposal.disabled = Boolean(venue.value); });
+    search.addEventListener('click', async () => {
+        search.disabled = true;
+        try {
+            const data = await api('/api/v1/businesses?searchAll=true&q=' + encodeURIComponent(query.value.trim()));
+            venue.replaceChildren(new Option('Use new venue details below', ''));
+            for (const match of data.items) venue.append(new Option(match.name + ' · ' + match.address, match.id));
+            proposal.disabled = false;
+            if (!data.items.length) notice('No matching venues. Enter verified venue details below.');
+        } catch (error) { notice(error.message); }
+        finally { search.disabled = false; }
+    });
+    const queue = element('button', 'Add to Pending', 'primary');
+    form.append(proposal, element('p', 'Imported price starts as Unknown.'), queue);
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (!venue.value && [name, address, city, latitude, longitude].some(input => !input.value.trim())) {
+            notice('Choose an existing venue or fill in all new venue details.');
+            return;
+        }
+        const choice = venue.value ? { businessId: venue.value } : { proposal: {
+            name: name.value, address: address.value, city: city.value,
+            latitude: Number(latitude.value), longitude: Number(longitude.value)
+        } };
+        queue.disabled = true;
+        try {
+            await api('/admin/api/event-imports', { method: 'POST', body: JSON.stringify({
+                source: feed.source, id: item.id, categoryId: category.value, venue: choice
+            }) });
+            form.replaceWith(element('p', 'Added to Pending'));
+            notice('Imported event is ready for review.', true);
+            if (status === 'PENDING') await loadQueue();
+        } catch (error) { notice(error.message); queue.disabled = false; }
+    });
+    card.append(form);
+    return card;
+}
+
+$('imports-preview').addEventListener('click', async () => {
+    const generation = authGeneration;
+    const button = $('imports-preview');
+    button.disabled = true;
+    $('imports').replaceChildren(element('p', 'Checking the event feeds…'));
+    try {
+        const { feeds } = await api('/admin/api/event-imports');
+        if (generation !== authGeneration) return;
+        $('imports').replaceChildren();
+        for (const feed of feeds) {
+            const section = element('section');
+            section.append(element('h3', feed.name));
+            section.append(element('p', feed.error || (feed.records
+                ? feed.format + ' · ' + feed.records + ' records fetched · ' + feed.items.length + ' in preview'
+                : feed.format + ' · Feed returned zero event records')));
+            feed.items.forEach(item => section.append(renderImport(feed, item)));
+            $('imports').append(section);
+        }
+    } catch (error) {
+        if (generation === authGeneration) $('imports').replaceChildren(element('p', error.message));
+    } finally { button.disabled = false; }
+});

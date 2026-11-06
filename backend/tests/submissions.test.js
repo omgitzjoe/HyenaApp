@@ -46,7 +46,21 @@ before(async()=>{
  app.use('/api/v1/reports',require('../routes/reports').createReportRouter({pool,logger:quiet,limiter:skip}));
  app.use('/limited-reports',require('../routes/reports').createReportRouter({pool,logger:quiet,limiter:requestLimit(1,60000)}));
  app.use('/api/v1/businesses',createBusinessRouter({pool,logger:quiet}));
- app.use('/admin',createAdminRouter({pool,env,logger:quiet,loginLimiter:skip}));
+ const importFetcher = async url => {
+  if (url.includes('idahofallsidaho.gov')) {
+   return new Response('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n');
+  }
+  const start = new Date(Date.now() + 2*86400000);
+  start.setUTCHours(18, 0, 0, 0);
+  return Response.json({events:[{
+   id:51, title:'Community lantern walk', venue:'Open Studio',
+   start_at:start.toISOString(), end_at:new Date(start.getTime()+3600000).toISOString()
+  }, {
+   id:52, title:'City Hall Closed', filter_name:['Closure'],
+   start_at:start.toISOString(), end_at:new Date(start.getTime()+3600000).toISOString()
+  }]});
+ };
+ app.use('/admin',createAdminRouter({pool,env,logger:quiet,loginLimiter:skip,importFetcher}));
  server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});base='http://127.0.0.1:'+server.address().port;
  const login=await request('/admin/api/login',{username:'reviewer',password:pass});assert.equal(login.status,200);
  session={cookie:login.headers.get('set-cookie').split(';')[0],csrf:login.body.csrfToken};
@@ -278,4 +292,32 @@ test('community corrections validate input and require authenticated CSRF-protec
  assert.ok(!(await request('/admin/api/reports',undefined,true)).body.items.some(x=>x.id===report.body.id));
  assert.equal((await request('/limited-reports',{experienceId:id,reason:'OTHER'})).status,201);
  assert.equal((await request('/limited-reports',{experienceId:id,reason:'OTHER'})).status,429);
+});
+
+test('admin feed preview is read-only and selected events are queued once with source and unknown price', async () => {
+ const route = '/admin/api/event-imports';
+ assert.equal((await request(route)).status, 401);
+ const preview = await request(route, undefined, true);
+ assert.equal(preview.status, 200);
+ const [parks, rexburg] = preview.body.feeds;
+ assert.equal(parks.records, 0);
+ const [candidate, closure] = rexburg.items;
+ assert.equal(candidate.issue, null);
+ assert.equal(closure.issue, 'City notice or closure');
+ const counts = async () => (await db.query('SELECT count(*)::int AS count FROM experiences')).rows[0].count;
+ const publishedBefore = await counts();
+ const body = {source:'rexburg', id:candidate.id, venue:{businessId:ids.business}, categoryId:ids.category};
+ assert.equal((await request(route, body, true, {'X-CSRF-Token':'invalid'})).status, 403);
+ assert.equal((await request(route, {...body, id:closure.id}, true)).status, 400);
+ const queued = await request(route, body, true);
+ assert.equal(queued.status, 201, JSON.stringify(queued.body));
+ const repeat = await request(route, body, true);
+ assert.equal(repeat.status, 200);
+ assert.equal(queued.body.item.id, repeat.body.item.id);
+ assert.equal(await counts(), publishedBefore);
+ const row = (await db.query('SELECT payload FROM event_submissions WHERE id=$1',[queued.body.item.id])).rows[0];
+ assert.equal(row.payload.event.sourceUrl, 'https://www.rexburg.org/events?id=51');
+ assert.equal(row.payload.event.priceAmount, null);
+ const next = await request(route, undefined, true);
+ assert.equal(next.body.feeds[1].items[0].queuedStatus, 'PENDING');
 });

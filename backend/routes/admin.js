@@ -8,6 +8,7 @@ const {ReviewError}=require('../services/publishExperience');
 const {scheduleBounds}=require('../validation/submission');
 const {venueTimeZone}=require('../services/venueLocation');
 const {requestLimit}=require('../middleware/requestLimits');
+const {createEventImports}=require('../services/eventImports');
 const cookieName='hyena_admin';
 function sessionToken(req){const value=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='));const token=value?.slice(cookieName.length+1);return /^[a-f0-9]{64}$/.test(token||'')?token:null;}
 function sameOrigin(req,res,next){
@@ -19,7 +20,7 @@ function sameOrigin(req,res,next){
 const approval=z.strictObject({businessId:z.uuid().optional(),latitude:z.number().min(-90).max(90).optional(),longitude:z.number().min(-180).max(180).optional(),note:z.string().trim().max(2000).optional()})
     .refine(x=>(x.latitude===undefined)===(x.longitude===undefined),{message:'Provide both latitude and longitude.'});
 const rejection=z.strictObject({note:z.string().trim().min(1).max(2000)});
-function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Date(),loginLimiter=requestLimit(5,15*60*1000)}){
+function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Date(),loginLimiter=requestLimit(5,15*60*1000),importFetcher=fetch}){
     const router=express.Router();
     router.use((req,res,next)=>{
         res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
@@ -60,6 +61,29 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
             }
             next();
         }catch(error){logger.error('Admin session failed:',error.message);res.status(500).json({error:{code:'SESSION_UNAVAILABLE',message:'Unable to verify administrator session.'}});}
+    });
+    const imports = createEventImports({ pool, clock, fetcher: importFetcher });
+    router.get('/api/event-imports', async (req, res) => {
+        try { res.json({ feeds: await imports.preview() }); }
+        catch (error) {
+            logger.error('Event import preview failed:', error.message);
+            res.status(500).json({ error: { message: 'Unable to preview event feeds.' } });
+        }
+    });
+    router.post('/api/event-imports', async (req, res) => {
+        const parsed = z.strictObject({
+            source: z.enum(['parks', 'rexburg']), id: z.uuid(), categoryId: z.uuid(),
+            venue: z.record(z.string(), z.unknown())
+        }).safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: { message: 'Choose a feed event, category, and venue.' } });
+        try {
+            const result = await imports.queue(parsed.data);
+            res.status(result.created ? 201 : 200).json(result);
+        } catch (error) {
+            if (error instanceof ReviewError) return res.status(error.status).json({ error: { code: error.code, message: error.message } });
+            logger.error('Event import failed:', error.message);
+            res.status(502).json({ error: { message: 'Unable to queue this feed event. Reload the preview and retry.' } });
+        }
     });
     router.get('/api/reports',async(req,res)=>{
         try { const result=await pool.query(`SELECT r.id,r.reason,r.details,r.created_at AS "createdAt",e.id AS "experienceId",e.title,b.name AS "businessName" FROM event_reports r JOIN experiences e ON e.id=r.experience_id JOIN businesses b ON b.id=e.business_id WHERE r.status='OPEN' ORDER BY r.created_at,r.id LIMIT 100`);res.json({items:result.rows}); }
