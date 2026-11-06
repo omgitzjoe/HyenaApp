@@ -18,9 +18,10 @@ function findOccurrence(schedule, filters, now) {
     const instant = asInstant(now);
     const zone = schedule.timeZone;
     const windowZone = filters.timeZone || zone;
+    const today = instant.toZonedDateTimeISO(windowZone).toPlainDate();
     const target = filters.window === "date"
         ? Temporal.PlainDate.from(filters.date)
-        : instant.toZonedDateTimeISO(windowZone).toPlainDate();
+        : today.add({ days: filters.window === "tomorrow" ? 1 : 0 });
     const windowStart = filters.window === "tonight"
         ? target.toPlainDateTime("17:00").toZonedDateTime(windowZone, { disambiguation: "compatible" }).toInstant()
         : target.toZonedDateTime(windowZone).toInstant();

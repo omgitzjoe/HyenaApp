@@ -15,6 +15,14 @@ test('today includes an upcoming event and computes venue-local instants', () =>
 });
 test('today excludes expired one-time events', () => assert.equal(occurrence({ startTime: '09:00', endTime: '10:00' }), null));
 test('today excludes tomorrow', () => assert.equal(occurrence({ startDate: '2026-10-29', endDate: '2026-10-29' }), null));
+test('tomorrow follows the viewer calendar date across UTC midnight', () => {
+    const clock = '2026-10-29T01:00:00Z';
+    const event = { ...base, startDate: '2026-10-29', endDate: '2026-10-29', endTime: '17:30' };
+    const denver = parseDiscoveryQuery({ window: 'tomorrow', timeZone: 'America/Denver' });
+    const utc = parseDiscoveryQuery({ window: 'tomorrow', timeZone: 'UTC' });
+    assert.equal(findOccurrence(event, denver, clock)?.localDate, '2026-10-29');
+    assert.equal(findOccurrence(event, utc, clock), null);
+});
 test('today excludes a historical one-time event', () => assert.equal(occurrence({ startDate: '2020-01-01', endDate: '2020-01-01' }), null));
 test('tonight includes exact 17:00 start', () => assert.ok(occurrence({}, 'tonight')));
 test('tonight excludes exact 17:00 end', () => assert.equal(occurrence({ startTime: '16:00', endTime: '17:00' }, 'tonight'), null));

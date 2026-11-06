@@ -36,7 +36,7 @@ internal object AppPreferencesCodec {
                 it.takeIf { item -> item.isJsonPrimitive && item.asJsonPrimitive.isString }?.asString?.takeIf(uuid::matches)
             }?.distinct()?.take(20).orEmpty()
             val date = text(f, "date")?.takeIf { runCatching { LocalDate.parse(it) }.isSuccess }
-            val window = text(f, "window")?.takeIf { it in listOf("today", "tonight", "now", "date", "all") } ?: "today"
+            val window = text(f, "window")?.takeIf { it in listOf("today", "tonight", "now", "tomorrow", "date", "all") } ?: "today"
             val radius = root.get("radiusMiles")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble
                 ?.takeIf { it in listOf(5.0,10.0,25.0,100.0) }?.toInt() ?: 10
             AppPreferences(

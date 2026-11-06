@@ -10,15 +10,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
 import retrofit2.HttpException
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,17 +27,11 @@ import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.remote.ApiClient
 import com.example.hyenaapp.data.remote.CategoryDto
 import com.example.hyenaapp.data.repository.DiscoveryFilters
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
-import java.time.ZoneOffset
 import kotlin.coroutines.cancellation.CancellationException
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscoveryFiltersPanel(
     filters: DiscoveryFilters,
-    timeZone: String,
     onFiltersChange: (DiscoveryFilters) -> Unit,
     onClear: () -> Unit
 ) {
@@ -50,7 +39,6 @@ fun DiscoveryFiltersPanel(
     var loading by remember { mutableStateOf(true) }
     var failure by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableStateOf(0) }
-    var showDate by remember { mutableStateOf(false) }
     var draftPrice by remember(filters.maxPrice, filters.priceMode) { mutableStateOf(filters.maxPrice) }
     val validPrice = Regex("\\d{1,8}(?:\\.\\d{1,2})?").matches(draftPrice)
     val latestFilters by rememberUpdatedState(filters)
@@ -128,31 +116,7 @@ fun DiscoveryFiltersPanel(
         } else if (filters.priceMode == "free") {
             Text("Only listings with a numeric price of zero. Unknown prices excluded.")
         }
-        DiscoveryWindowPicker(selectedWindow = filters.window, onWindowChange = {
-            onFiltersChange(filters.copy(window = it, date = null))
-        })
-        OutlinedButton(onClick = { showDate = true }) {
-            Text(if (filters.window == "date") "Date: ${filters.date}" else "Choose a date")
-        }
         TextButton(onClick = onClear) { Text("Clear filters") }
     }
-    }
-    if (showDate) {
-        val initial = filters.date?.let(LocalDate::parse) ?: LocalDate.now(ZoneId.of(timeZone))
-        // Material date-picker milliseconds represent the chosen calendar date in UTC.
-        val state = rememberDatePickerState(initialSelectedDateMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
-        DatePickerDialog(
-            onDismissRequest = { showDate = false },
-            confirmButton = {
-                TextButton(enabled = state.selectedDateMillis != null, onClick = {
-                    state.selectedDateMillis?.let { millis ->
-                        val date = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().toString()
-                        onFiltersChange(filters.copy(window = "date", date = date))
-                    }
-                    showDate = false
-                }) { Text("Apply date") }
-            },
-            dismissButton = { TextButton(onClick = { showDate = false }) { Text("Cancel") } }
-        ) { DatePicker(state = state) }
     }
 }

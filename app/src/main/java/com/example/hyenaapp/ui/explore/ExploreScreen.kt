@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -21,11 +24,17 @@ import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.data.repository.NearbyLocation
 import com.example.hyenaapp.data.repository.DiscoveryFilters
 import com.example.hyenaapp.domain.model.Experience
+import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
 import com.example.hyenaapp.ui.components.PageHeader
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
 import com.example.hyenaapp.ui.components.ExperienceCard
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExploreScreen(
     modifier: Modifier = Modifier,
@@ -35,6 +44,8 @@ fun ExploreScreen(
     locationControls: @Composable () -> Unit = {},
     filters: DiscoveryFilters = DiscoveryFilters(),
     filterControls: @Composable () -> Unit = {},
+    onWindowChange: (String) -> Unit = {},
+    onDateChange: (String) -> Unit = {},
     savedIds: Set<String> = emptySet(),
     savingEnabled: Boolean = true,
     onToggleSave: (Experience) -> Unit = {},
@@ -59,7 +70,7 @@ fun ExploreScreen(
                 delay(300)
             }
 
-            experiences = ExperienceRepository.getExperiences(query, filters.window, timeZone, nearby, radiusMiles, filters)
+            experiences = ExperienceRepository.getExperiences(query, filters.window, timeZone, nearby, radiusMiles, filters, limit = if (filters.window == "date") 100 else 20)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -78,8 +89,34 @@ fun ExploreScreen(
         item { PageHeader("Discover / Explore", "Find your kind of good time.", "Search local experiences. Soonest first, then distance when start times match.") }
 
         item { locationControls() }
+        item {
+            DiscoveryWindowPicker(
+                selectedWindow = filters.window,
+                onWindowChange = onWindowChange,
+                onCalendarClick = {
+                    if (filters.window != "date") {
+                        onDateChange(LocalDate.now(ZoneId.of(timeZone)).toString())
+                    }
+                }
+            )
+        }
         item { filterControls() }
-
+        if (filters.window == "date") {
+            item(key = "calendar") {
+                val date = filters.date?.let(LocalDate::parse) ?: LocalDate.now(ZoneId.of(timeZone))
+                // The Material picker represents calendar dates at midnight UTC.
+                val initialMillis = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+                val state = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+                LaunchedEffect(state.selectedDateMillis, initialMillis) {
+                    val millis = state.selectedDateMillis ?: return@LaunchedEffect
+                    if (millis != initialMillis) {
+                        onDateChange(Instant.ofEpochMilli(millis).atOffset(ZoneOffset.UTC).toLocalDate().toString())
+                    }
+                }
+                DatePicker(state = state, showModeToggle = false)
+            }
+            item { Text("Events on ${filters.date}", style = MaterialTheme.typography.titleMedium) }
+        }
 
         when {
             nearby == null -> item { Text("Enable location to discover experiences around you.") }

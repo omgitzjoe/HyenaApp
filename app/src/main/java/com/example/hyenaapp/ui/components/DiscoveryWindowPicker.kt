@@ -14,9 +14,12 @@ import androidx.compose.ui.unit.dp
 fun DiscoveryWindowPicker(
     selectedWindow: String,
     onWindowChange: (String) -> Unit,
-    modifier: Modifier = Modifier
+    onCalendarClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    quickOnly: Boolean = false
 ) {
-    val options = listOf("today" to "Today", "tonight" to "Tonight", "now" to "Now", "all" to "All dates")
+    val quickOptions = listOf("now" to "Now", "tonight" to "Tonight", "tomorrow" to "Tomorrow", "date" to "Calendar")
+    val options = if (quickOnly) quickOptions else quickOptions + listOf("today" to "Today", "all" to "All dates")
     Row(
         modifier = modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -24,7 +27,7 @@ fun DiscoveryWindowPicker(
         options.forEach { (value, label) ->
             FilterChip(
                 selected = selectedWindow == value,
-                onClick = { onWindowChange(value) },
+                onClick = { if (value == "date") onCalendarClick() else onWindowChange(value) },
                 label = { Text(label) }
             )
         }

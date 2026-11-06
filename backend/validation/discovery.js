@@ -13,8 +13,8 @@ function parseDiscoveryQuery(query) {
         throw new DiscoveryQueryError("INVALID_SEARCH", "Search must be text with at most 100 characters.");
     }
     const window = query.window ?? "today";
-    if (typeof window !== "string" || !["today", "tonight", "now", "date", "all"].includes(window)) {
-        throw new DiscoveryQueryError("INVALID_WINDOW", "Choose today, tonight, now, date, or all.");
+    if (typeof window !== "string" || !["today", "tonight", "now", "tomorrow", "date", "all"].includes(window)) {
+        throw new DiscoveryQueryError("INVALID_WINDOW", "Choose today, tonight, now, tomorrow, date, or all.");
     }
     let date = null;
     if (window === "date") {

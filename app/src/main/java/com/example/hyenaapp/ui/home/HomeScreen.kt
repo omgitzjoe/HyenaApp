@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.data.repository.NearbyLocation
 import com.example.hyenaapp.domain.model.Experience
+import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
 import com.example.hyenaapp.ui.components.PageHeader
 import com.example.hyenaapp.ui.components.ExperienceCard
 import java.time.ZoneId
@@ -39,7 +40,9 @@ fun HomeScreen(
     onToggleSave: (Experience) -> Unit = {},
     onExperienceClick: (Experience) -> Unit = {},
     onRefreshLocation: () -> Unit = {},
-    onExplore: () -> Unit = {}
+    onExplore: () -> Unit = {},
+    onQuickSearch: (String) -> Unit = {},
+    onCalendarClick: () -> Unit = {}
 ) {
     var experiences by remember { mutableStateOf<List<Experience>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -73,6 +76,14 @@ fun HomeScreen(
     ) {
         item { PageHeader("Hyena / Today", "Good plans, close by.", "Community plans, never paid placement. Today’s next 12, ordered by time and distance.", mascot = true) }
         item { locationControls() }
+        item {
+            DiscoveryWindowPicker(
+                selectedWindow = "",
+                onWindowChange = onQuickSearch,
+                onCalendarClick = onCalendarClick,
+                quickOnly = true
+            )
+        }
         item {
             Button(onClick = { onRefreshLocation(); reloadKey++ }, enabled = !loading) { Text("Refresh") }
             refreshedAt?.let { Text("Last updated $it") }

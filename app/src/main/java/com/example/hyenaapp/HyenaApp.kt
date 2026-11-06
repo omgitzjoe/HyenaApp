@@ -126,7 +126,7 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
     val filters = preferences.filters
     val updateFilters: (DiscoveryFilters) -> Unit = { onPreferencesChange(preferences.copy(filters = it)) }
     val filterControls: @Composable () -> Unit = {
-        DiscoveryFiltersPanel(filters, timeZone, updateFilters, onClear = {
+        DiscoveryFiltersPanel(filters, updateFilters, onClear = {
             onPreferencesChange(preferences.copy(filters = DiscoveryFilters(), radiusMiles = 10))
         })
     }
@@ -238,12 +238,23 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
                         timeZone = timeZone, locationControls = locationControls,
                         savedIds = savedIds,
                         savingEnabled = savingEnabled, onToggleSave = toggleSave,
-                        onExperienceClick = openExperience, onRefreshLocation = { resetKey++ }, onExplore = { selectedTab = "Explore" }
+                        onExperienceClick = openExperience, onRefreshLocation = { resetKey++ }, onExplore = { selectedTab = "Explore" },
+                        onQuickSearch = { window ->
+                            updateFilters(filters.copy(window = window, date = null))
+                            selectedTab = "Explore"
+                        },
+                        onCalendarClick = {
+                            val date = filters.date ?: java.time.LocalDate.now(ZoneId.of(timeZone)).toString()
+                            updateFilters(filters.copy(window = "date", date = date))
+                            selectedTab = "Explore"
+                        }
                     )
                     "Explore" -> ExploreScreen(
                         nearby = nearby, radiusMiles = radiusMiles,
                         timeZone = timeZone, locationControls = locationControls,
                         filters = filters, filterControls = filterControls,
+                        onWindowChange = { window -> updateFilters(filters.copy(window = window, date = null)) },
+                        onDateChange = { date -> updateFilters(filters.copy(window = "date", date = date)) },
                         savedIds = savedIds,
                         savingEnabled = savingEnabled, onToggleSave = toggleSave,
                         onExperienceClick = openExperience
