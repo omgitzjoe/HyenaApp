@@ -1,4 +1,4 @@
-const { createHash } = require('node:crypto');
+const { createHash, randomUUID } = require('node:crypto');
 const ICAL = require('ical.js');
 const { Temporal } = require('@js-temporal/polyfill');
 const { parseSubmission, scheduleBounds } = require('../validation/submission');
@@ -7,6 +7,14 @@ const { ReviewError } = require('./publishExperience');
 const { venueTimeZone } = require('./venueLocation');
 
 const zone = 'America/Denver';
+const civicTags = new Set(['closure', 'official business', 'city council', 'trash pickup', 'garbage schedule']);
+const civicTitle = /\b(?:city hall closed|offices? closed|city council (?:meeting|work session)|parking restrictions|garbage schedule)\b/i;
+const holidayTitle = /^(?:happy )?(?:new year'?s day|memorial day|juneteenth|independence day|4th of july|labor day|veteran(?:s'?|'s) day|thanksgiving(?: day)?|christmas(?: day| eve)?|president(?:s'?|'s) day|martin luther king(?: jr\.?)? day)(?:[.!])?$/i;
+
+function isCivicNotice(title, tags) {
+    return civicTitle.test(title || '') || holidayTitle.test(String(title || '').trim()) ||
+        tags.some(tag => civicTags.has(String(tag).trim().toLowerCase()));
+}
 const sources = {
     parks: {
         name: 'Idaho Falls Parks & Recreation',
@@ -47,6 +55,7 @@ function calendarRows(text) {
         const row = {
             id: String(get('uid') || ''), title: get('summary'), venue: get('location'),
             url: get('url'), cancelled: String(get('status')).toUpperCase() === 'CANCELLED',
+            notice: isCivicNotice(get('summary'), []),
             recurring: ['rrule', 'rdate', 'recurrence-id'].some(key => event.hasProperty(key))
         };
         try {
@@ -67,8 +76,7 @@ function rexburgRows(text) {
             url: `${sources.rexburg.page}?id=${event.id}`, allDay: event.all_day === true,
             latitude: event.latitude, longitude: event.longitude,
             cancelled: /\bcancell?ed\b/i.test(event.title || ''),
-            notice: Array.isArray(event.filter_name) &&
-                event.filter_name.some(tag => ['Closure', 'Official Business'].includes(tag))
+            notice: isCivicNotice(event.title, Array.isArray(event.filter_name) ? event.filter_name : [])
         };
         try {
             row.start = Temporal.Instant.from(event.start_at).toZonedDateTimeISO(zone);
@@ -149,6 +157,7 @@ async function fetchText(fetcher, url) {
 
 function createEventImports({ pool, fetcher = fetch, clock = () => new Date() }) {
     const cache = new Map();
+    let runningSync;
     function load(source) {
         const previous = cache.get(source);
         if (previous && previous.expires > Date.now()) return previous.promise;
@@ -177,7 +186,11 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
         );
         const imported = new Map(rows.map(row => [row.id, row]));
         for (const feed of feeds) {
-            feed.items = feed.items.map(item => {
+            const count = feed.items.length;
+            feed.items = feed.items.filter(item => {
+                const previous = imported.get(item.id);
+                return previous?.status !== 'REJECTED' && (!item.issue || previous);
+            }).map(item => {
                 const previous = imported.get(item.id);
                 if (!previous) return item;
                 const old = previous.payload.event;
@@ -186,6 +199,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
                 return { ...item, queuedStatus: previous.status,
                     issue: item.issue || (changed || old.title !== item.title ? 'Source details changed. Review the existing submission.' : null) };
             });
+            feed.hidden = count - feed.items.length;
         }
         return feeds;
     }
@@ -195,10 +209,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
         if (!item || item.issue) throw new ReviewError(400, 'IMPORT_NOT_READY', 'This event needs manual review before it can be queued.');
         const parsed = parseSubmission({
             clientRequestId: id, venue,
-            event: {
-                title: item.title, description: `Event listed by ${feed.name}. See the source for details.`,
-                type: 'EVENT', sourceUrl: item.url, categoryIds: [categoryId], schedule: item.schedule
-            }
+            event: importEvent(feed, item, [categoryId])
         });
         if (!parsed.success) throw new ReviewError(400, 'IMPORT_INVALID', 'Check the category, venue details, coordinates, and event schedule.');
         const location = venue.proposal || (await pool.query(
@@ -215,7 +226,68 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
         }
         return submitEvent(pool, parsed.data, clock());
     }
-    return { preview, queue };
+    function importEvent(feed, item, categoryIds) {
+        return {
+            title: item.title, description: `Event listed by ${feed.name}. See the source for details.`,
+            type: 'EVENT', priceAmount: null, sourceUrl: item.url, categoryIds, schedule: item.schedule
+        };
+    }
+    function proposal(item) {
+        return { name: item.venue || 'Venue to verify', address: item.venue || 'Address to verify',
+            city: item.city, latitude: item.latitude, longitude: item.longitude };
+    }
+    async function dismiss({ source, id }, username) {
+        const feed = await load(source);
+        const item = feed.items.find(event => event.id === id);
+        if (!item || !item.schedule) throw new ReviewError(404, 'IMPORT_NOT_FOUND', 'Refresh the feed to find this event.');
+        const payload = { venue: { proposal: proposal(item) }, event: importEvent(feed, item, []) };
+        const result = await pool.query(
+            `INSERT INTO event_submissions (id, client_request_id, payload, status, reviewed_by, reviewed_at, review_note)
+             VALUES ($1, $2, $3::jsonb, 'REJECTED', $4, CURRENT_TIMESTAMP, 'Dismissed from event feed')
+             ON CONFLICT (client_request_id) DO UPDATE SET status='REJECTED', reviewed_by=EXCLUDED.reviewed_by,
+                 reviewed_at=EXCLUDED.reviewed_at, review_note=EXCLUDED.review_note
+             WHERE event_submissions.status='PENDING' RETURNING status`,
+            [randomUUID(), id, JSON.stringify(payload), username]
+        );
+        if (result.rows.length) return;
+        const existing = await pool.query('SELECT status FROM event_submissions WHERE client_request_id=$1', [id]);
+        if (existing.rows[0]?.status !== 'REJECTED') {
+            throw new ReviewError(409, 'IMPORT_ALREADY_PUBLISHED', 'This event was published. Review the public listing separately.');
+        }
+    }
+    async function importEligible() {
+        const feeds = await preview();
+        const { rows } = await pool.query(
+            "SELECT id FROM categories WHERE slug IN ('community','hyena-seed-community') ORDER BY slug LIMIT 1"
+        );
+        const categoryId = rows[0]?.id;
+        const summary = { queued: 0, needsReview: 0, unavailable: feeds.filter(feed => feed.error).length };
+        for (const feed of feeds) {
+            for (const item of feed.items) {
+                if (item.queuedStatus || item.issue) continue;
+                // Generic city pins are insufficient. Require a street address and source coordinates.
+                if (!categoryId || !/\b\d+\s+\S/.test(item.venue.split(',')[0]) ||
+                    item.latitude == null || item.longitude == null) {
+                    summary.needsReview++;
+                    continue;
+                }
+                try {
+                    const result = await queue({ source: feed.source, id: item.id, categoryId,
+                        venue: { proposal: proposal(item) } });
+                    if (result.created) summary.queued++;
+                } catch (error) {
+                    if (!(error instanceof ReviewError)) throw error;
+                    summary.needsReview++;
+                }
+            }
+        }
+        return summary;
+    }
+    function sync() {
+        if (!runningSync) runningSync = importEligible().finally(() => { runningSync = null; });
+        return runningSync;
+    }
+    return { preview, queue, dismiss, sync };
 }
 
 module.exports = { createEventImports, calendarRows, rexburgRows, normalize, sources };

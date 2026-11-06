@@ -8,6 +8,8 @@ const createCategoryRouter = require("./routes/categories");
 const createSubmissionRouter = require("./routes/submissions");
 const createBusinessRouter = require("./routes/businesses");
 const { createAdminRouter } = require("./routes/admin");
+const { createEventImports } = require("./services/eventImports");
+const eventImports = createEventImports({ pool });
 const curatorRoutes = require("./routes/curator");
 
 const app = express();
@@ -28,7 +30,7 @@ app.use("/api/v1/curator", curatorRoutes);
 app.use("/api/v1/businesses", createBusinessRouter({ pool }));
 app.use("/api/v1/submissions", createSubmissionRouter({ pool }));
 app.use("/api/v1/reports", require("./routes/reports").createReportRouter({ pool }));
-app.use("/admin", createAdminRouter({ pool }));
+app.use("/admin", createAdminRouter({ pool, eventImports }));
 app.use((error, req, res, next) => {
     if (error.type === "entity.too.large") return res.status(413).json({ error: { code: "BODY_TOO_LARGE", message: "The request is too large." } });
     if (error.type === "entity.parse.failed") return res.status(400).json({ error: { code: "INVALID_JSON", message: "Send valid JSON." } });
@@ -36,10 +38,26 @@ app.use((error, req, res, next) => {
     res.status(500).json({ error: { code: "REQUEST_FAILED", message: "Unable to complete the request." } });
 });
 
+let importTimer;
+async function syncEvents() {
+    try {
+        const result = await eventImports.sync();
+        console.log("Calendar import:", result);
+    } catch (error) {
+        console.error("Calendar import failed:", error.message);
+    }
+}
+
 const server = app.listen(port, "0.0.0.0", () => {
     console.log(`Hyena API running at http://localhost:${port}`);
+    if (process.env.NODE_ENV === "production") {
+        void syncEvents();
+        importTimer = setInterval(syncEvents, 60 * 60 * 1000);
+        importTimer.unref();
+    }
 });
 process.once("SIGTERM", () => {
+    clearInterval(importTimer);
     const timeout = setTimeout(() => process.exit(1), 10000);
     timeout.unref();
     server.close(async () => {

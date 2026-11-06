@@ -20,7 +20,7 @@ function sameOrigin(req,res,next){
 const approval=z.strictObject({businessId:z.uuid().optional(),latitude:z.number().min(-90).max(90).optional(),longitude:z.number().min(-180).max(180).optional(),note:z.string().trim().max(2000).optional()})
     .refine(x=>(x.latitude===undefined)===(x.longitude===undefined),{message:'Provide both latitude and longitude.'});
 const rejection=z.strictObject({note:z.string().trim().min(1).max(2000)});
-function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Date(),loginLimiter=requestLimit(5,15*60*1000),importFetcher=fetch}){
+function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Date(),loginLimiter=requestLimit(5,15*60*1000),importFetcher=fetch,eventImports=createEventImports({pool,clock,fetcher:importFetcher})}){
     const router=express.Router();
     router.use((req,res,next)=>{
         res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
@@ -62,12 +62,31 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
             next();
         }catch(error){logger.error('Admin session failed:',error.message);res.status(500).json({error:{code:'SESSION_UNAVAILABLE',message:'Unable to verify administrator session.'}});}
     });
-    const imports = createEventImports({ pool, clock, fetcher: importFetcher });
+    const imports = eventImports;
     router.get('/api/event-imports', async (req, res) => {
         try { res.json({ feeds: await imports.preview() }); }
         catch (error) {
             logger.error('Event import preview failed:', error.message);
             res.status(500).json({ error: { message: 'Unable to preview event feeds.' } });
+        }
+    });
+    router.post('/api/event-imports/sync', async (req, res) => {
+        try { res.json(await imports.sync()); }
+        catch (error) {
+            logger.error('Event feed sync failed:', error.message);
+            res.status(502).json({ error: { message: 'Unable to check feeds right now.' } });
+        }
+    });
+    router.post('/api/event-imports/dismiss', async (req, res) => {
+        const parsed = z.strictObject({ source: z.enum(['parks', 'rexburg']), id: z.uuid() }).safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: { message: 'Choose a feed event to dismiss.' } });
+        try {
+            await imports.dismiss(parsed.data, req.admin.username);
+            res.json({ status: 'REJECTED' });
+        } catch (error) {
+            if (error instanceof ReviewError) return res.status(error.status).json({ error: { message: error.message } });
+            logger.error('Event import dismissal failed:', error.message);
+            res.status(502).json({ error: { message: 'Unable to dismiss this feed event.' } });
         }
     });
     router.post('/api/event-imports', async (req, res) => {

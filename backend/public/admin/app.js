@@ -57,13 +57,18 @@ async function select(id){
     }
     if(proposal){
         venueSelect.addEventListener('change',()=>{latitude.disabled=longitude.disabled=!!venueSelect.value;});
-        api('/api/v1/businesses?'+new URLSearchParams({q:proposal.name.slice(0,100),searchAll:'true'})).then(data=>{if(selectedId===id)data.items.forEach(x=>venueSelect.append(new Option(x.name+' · '+x.address,x.id)));}).catch(()=>notice('Venue matches could not load. Refresh before approving a new venue.'));
+        api('/api/v1/businesses?'+new URLSearchParams({q:proposal.name.split(',')[0].slice(0,100),searchAll:'true'})).then(data=>{if(selectedId===id)data.items.forEach(x=>venueSelect.append(new Option(x.name+' · '+x.address,x.id)));}).catch(()=>notice('Venue matches could not load. Refresh before approving a new venue.'));
     }
     const note=element('textarea');note.maxLength=2000;note.placeholder='Required for rejection; optional for approval.';const noteLabel=element('label','Review note');noteLabel.append(note);actions.append(noteLabel);
-    const approve=element('button','Approve & publish','primary'),reject=element('button','Reject submission','danger');
+    const fromFeed = typeof event.sourceUrl === 'string' && (
+        event.sourceUrl.startsWith('https://www.rexburg.org/events') ||
+        event.sourceUrl.startsWith('https://www.idahofallsidaho.gov/calendar.aspx')
+    );
+    const approve=element('button','Approve & publish','primary');
+    const reject=element('button',fromFeed ? 'Reject & hide from feed' : 'Reject submission','danger');
     async function decision(action){
-        if(busy)return;if(action==='reject'&&!note.value.trim()){notice('Enter a reason before rejecting.');note.focus();return;}
-        const body={note:note.value.trim()};if(action==='approve'&&needsCoordinates){if(venueSelect.value)body.businessId=venueSelect.value;else {if(!latitude.checkValidity()||!longitude.checkValidity()||latitude.value===''||longitude.value===''){notice('Enter valid latitude and longitude together.');return;}body.latitude=Number(latitude.value);body.longitude=Number(longitude.value);}}
+        if(busy)return;if(action==='reject'&&!fromFeed&&!note.value.trim()){notice('Enter a reason before rejecting.');note.focus();return;}
+        const body={note:note.value.trim() || (action==='reject' && fromFeed ? 'Dismissed from event feed' : '')};if(action==='approve'&&needsCoordinates){if(venueSelect.value)body.businessId=venueSelect.value;else {if(!latitude.checkValidity()||!longitude.checkValidity()||latitude.value===''||longitude.value===''){notice('Enter valid latitude and longitude together.');return;}body.latitude=Number(latitude.value);body.longitude=Number(longitude.value);}}
         busy=true;approve.disabled=reject.disabled=true;
         try{await api('/admin/api/submissions/'+id+'/'+action,{method:'POST',body:JSON.stringify(body)});notice(action==='approve'?'Approved. This experience is now public.':'Submission rejected.',true);busy=false;await loadQueue();}
         catch(error){notice(error.message);}finally{busy=false;approve.disabled=reject.disabled=false;}
@@ -124,6 +129,22 @@ function renderImport(feed, item) {
     if (link) card.append(link);
     if (item.issue) card.append(element('p', item.issue));
     if (item.queuedStatus) card.append(element('p', 'Already imported · ' + item.queuedStatus));
+    if (item.queuedStatus !== 'APPROVED') {
+        const dismiss = element('button', 'Dismiss from feed', 'danger');
+        dismiss.type = 'button';
+        dismiss.addEventListener('click', async () => {
+            dismiss.disabled = true;
+            try {
+                await api('/admin/api/event-imports/dismiss', { method: 'POST', body: JSON.stringify({
+                    source: feed.source, id: item.id
+                }) });
+                card.remove();
+                notice('Event dismissed. Future feed checks will skip it.', true);
+                await loadQueue();
+            } catch (error) { notice(error.message); dismiss.disabled = false; }
+        });
+        card.append(dismiss);
+    }
     if (item.issue || item.queuedStatus) return card;
 
     const form = element('form');
@@ -188,7 +209,7 @@ function renderImport(feed, item) {
     return card;
 }
 
-$('imports-preview').addEventListener('click', async () => {
+async function previewImports() {
     const generation = authGeneration;
     const button = $('imports-preview');
     button.disabled = true;
@@ -201,7 +222,7 @@ $('imports-preview').addEventListener('click', async () => {
             const section = element('section');
             section.append(element('h3', feed.name));
             section.append(element('p', feed.error || (feed.records
-                ? feed.format + ' · ' + feed.records + ' records fetched · ' + feed.items.length + ' in preview'
+                ? feed.format + ' · ' + feed.records + ' records fetched · ' + feed.items.length + ' in preview · ' + (feed.hidden || 0) + ' filtered or dismissed'
                 : feed.format + ' · Feed returned zero event records')));
             feed.items.forEach(item => section.append(renderImport(feed, item)));
             $('imports').append(section);
@@ -209,4 +230,18 @@ $('imports-preview').addEventListener('click', async () => {
     } catch (error) {
         if (generation === authGeneration) $('imports').replaceChildren(element('p', error.message));
     } finally { button.disabled = false; }
+}
+$('imports-preview').addEventListener('click', previewImports);
+$('imports-sync').addEventListener('click', async () => {
+    const button = $('imports-sync');
+    button.disabled = true;
+    try {
+        const result = await api('/admin/api/event-imports/sync', { method: 'POST', body: '{}' });
+        const detail = result.needsReview ? ' ' + result.needsReview + ' need a venue or category.' : '';
+        const unavailable = result.unavailable ? ' ' + result.unavailable + ' feed(s) unavailable.' : '';
+        notice(result.queued + ' new event(s) added to Pending.' + detail + unavailable, true);
+        await loadQueue();
+        await previewImports();
+    } catch (error) { notice(error.message); }
+    finally { button.disabled = false; }
 });

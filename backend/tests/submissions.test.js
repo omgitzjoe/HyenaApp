@@ -58,7 +58,10 @@ before(async()=>{
   }, {
    id:52, title:'City Hall Closed', filter_name:['Closure'],
    start_at:start.toISOString(), end_at:new Date(start.getTime()+3600000).toISOString()
-  }]});
+  }, ...['Christmas Day', 'Christmas Concert', 'Winter craft fair'].map((title, index) => ({
+   id:53+index, title, venue:'100 Main St, Rexburg, ID', latitude:43.8231, longitude:-111.7924,
+   start_at:start.toISOString(), end_at:new Date(start.getTime()+3600000).toISOString()
+  }))]});
  };
  app.use('/admin',createAdminRouter({pool,env,logger:quiet,loginLimiter:skip,importFetcher}));
  server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});base='http://127.0.0.1:'+server.address().port;
@@ -301,14 +304,15 @@ test('admin feed preview is read-only and selected events are queued once with s
  assert.equal(preview.status, 200);
  const [parks, rexburg] = preview.body.feeds;
  assert.equal(parks.records, 0);
- const [candidate, closure] = rexburg.items;
+ const candidate = rexburg.items.find(item => item.title === 'Community lantern walk');
  assert.equal(candidate.issue, null);
- assert.equal(closure.issue, 'City notice or closure');
+ assert.equal(rexburg.hidden, 2);
+ assert.ok(!rexburg.items.some(item => ['Christmas Day','City Hall Closed'].includes(item.title)));
+ assert.ok(rexburg.items.some(item => item.title === 'Christmas Concert'));
  const counts = async () => (await db.query('SELECT count(*)::int AS count FROM experiences')).rows[0].count;
  const publishedBefore = await counts();
  const body = {source:'rexburg', id:candidate.id, venue:{businessId:ids.business}, categoryId:ids.category};
  assert.equal((await request(route, body, true, {'X-CSRF-Token':'invalid'})).status, 403);
- assert.equal((await request(route, {...body, id:closure.id}, true)).status, 400);
  const queued = await request(route, body, true);
  assert.equal(queued.status, 201, JSON.stringify(queued.body));
  const repeat = await request(route, body, true);
@@ -319,5 +323,30 @@ test('admin feed preview is read-only and selected events are queued once with s
  assert.equal(row.payload.event.sourceUrl, 'https://www.rexburg.org/events?id=51');
  assert.equal(row.payload.event.priceAmount, null);
  const next = await request(route, undefined, true);
- assert.equal(next.body.feeds[1].items[0].queuedStatus, 'PENDING');
+ assert.equal(next.body.feeds[1].items.find(item => item.id === candidate.id).queuedStatus, 'PENDING');
+});
+
+
+test('feed sync queues qualified events once and remembers dismissals before and after queueing', async () => {
+ const route = '/admin/api/event-imports';
+ await db.query("INSERT INTO categories(id,name,slug) VALUES ($1,'Community (Feed Test)','hyena-seed-community') ON CONFLICT (slug) DO NOTHING",[randomUUID()]);
+ const initial = await request(route, undefined, true);
+ const items = initial.body.feeds[1].items;
+ const fair = items.find(item => item.title === 'Winter craft fair');
+ const concert = items.find(item => item.title === 'Christmas Concert');
+ const dismiss = id => request(route+'/dismiss', {source:'rexburg',id}, true);
+ assert.equal((await dismiss(fair.id)).status, 200);
+ assert.equal((await request(route+'/sync', {}, false)).status, 401);
+ const synced = await request(route+'/sync', {}, true);
+ assert.equal(synced.status, 200, JSON.stringify(synced.body));
+ assert.equal(synced.body.queued, 1);
+ assert.equal((await request(route+'/sync', {}, true)).body.queued, 0);
+ const status = async id => (await db.query('SELECT status,published_experience_id AS published FROM event_submissions WHERE client_request_id=$1',[id])).rows[0];
+ assert.deepEqual(await status(concert.id), {status:'PENDING',published:null});
+ assert.equal((await status(fair.id)).status, 'REJECTED');
+ assert.equal((await dismiss(concert.id)).status, 200);
+ assert.deepEqual(await status(concert.id), {status:'REJECTED',published:null});
+ assert.equal((await request(route+'/sync', {}, true)).body.queued, 0);
+ const visible = (await request(route, undefined, true)).body.feeds[1].items;
+ assert.ok(!visible.some(item => [fair.id,concert.id].includes(item.id)));
 });
