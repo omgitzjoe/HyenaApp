@@ -15,11 +15,9 @@ fun DiscoveryWindowPicker(
     selectedWindow: String,
     onWindowChange: (String) -> Unit,
     onCalendarClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    quickOnly: Boolean = false
+    modifier: Modifier = Modifier
 ) {
-    val quickOptions = listOf("now" to "Now", "tonight" to "Tonight", "tomorrow" to "Tomorrow", "date" to "Calendar")
-    val options = if (quickOnly) quickOptions else quickOptions + listOf("today" to "Today", "all" to "All dates")
+    val options = listOf("now" to "Now", "tonight" to "Tonight", "tomorrow" to "Tomorrow", "date" to "Calendar", "today" to "Today", "all" to "All dates")
     Row(
         modifier = modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)

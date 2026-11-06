@@ -19,90 +19,140 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.data.repository.NearbyLocation
+import com.example.hyenaapp.data.repository.DiscoveryFilters
 import com.example.hyenaapp.domain.model.Experience
+import com.example.hyenaapp.ui.components.EventCalendar
 import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
 import com.example.hyenaapp.ui.components.PageHeader
-import com.example.hyenaapp.ui.components.ExperienceCard
+import java.time.LocalDate
 import java.time.ZoneId
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
+import com.example.hyenaapp.ui.components.ExperienceCard
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.delay
 
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
     nearby: NearbyLocation? = null,
     radiusMiles: Int = 10,
-    timeZone: String = ZoneId.systemDefault().id,
+    timeZone: String = java.time.ZoneId.systemDefault().id,
     locationControls: @Composable () -> Unit = {},
+    filters: DiscoveryFilters = DiscoveryFilters(),
+    filterControls: @Composable () -> Unit = {},
+    onWindowChange: (String) -> Unit = {},
+    onDateChange: (String) -> Unit = {},
     savedIds: Set<String> = emptySet(),
     savingEnabled: Boolean = true,
     onToggleSave: (Experience) -> Unit = {},
-    onExperienceClick: (Experience) -> Unit = {},
-    onRefreshLocation: () -> Unit = {},
-    onExplore: () -> Unit = {},
-    onQuickSearch: (String) -> Unit = {},
-    onCalendarClick: () -> Unit = {}
+    onExperienceClick: (Experience) -> Unit = {}
 ) {
-    var experiences by remember { mutableStateOf<List<Experience>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var experiences by remember {
+        mutableStateOf<List<Experience>>(emptyList())
+    }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
-    var refreshedAt by remember { mutableStateOf<String?>(null) }
 
-    // Home has its own Today query; Explore's category, price, date and search never affect it.
-    LaunchedEffect(nearby, radiusMiles, timeZone, reloadKey) {
-        if (nearby == null) { experiences = emptyList(); loading = false; error = null; return@LaunchedEffect }
-        loading = true
-        error = null
+    val query = filters.query.trim()
+
+    LaunchedEffect(filters, nearby, radiusMiles, timeZone, reloadKey) {
+        if (nearby == null) { experiences = emptyList(); isLoading = false; errorMessage = null; return@LaunchedEffect }
+        isLoading = true
+        errorMessage = null
+
         try {
-            experiences = ExperienceRepository.getExperiences(
-                window = "today", timeZone = timeZone,
-                nearby = nearby, radiusMiles = radiusMiles, limit = 12
-            )
-            refreshedAt = ZonedDateTime.now(ZoneId.of(timeZone)).format(DateTimeFormatter.ofPattern("h:mm:ss a", java.util.Locale.US))
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            error = "Couldn't refresh today's experiences. Check your connection and try again."
+            if (query.isNotEmpty()) {
+                delay(300)
+            }
+
+            experiences = ExperienceRepository.getExperiences(query, filters.window, timeZone, nearby, radiusMiles, filters, limit = if (filters.window == "date") 100 else 20)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            errorMessage =
+                "Couldn't load experiences. Check your connection and try again."
         } finally {
-            loading = false
+            isLoading = false
         }
     }
 
     LazyColumn(
-        modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 112.dp),
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { PageHeader("Hyena / Today", "Good plans, close by.", "Community plans, never paid placement. Today’s next 12, ordered by time and distance.", mascot = true) }
+        item { PageHeader("Discover / Home", "Good plans, close by.", "Community plans, ordered by time and distance.", mascot = true) }
+
         item { locationControls() }
         item {
             DiscoveryWindowPicker(
-                selectedWindow = "",
-                onWindowChange = onQuickSearch,
-                onCalendarClick = onCalendarClick,
-                quickOnly = true
+                selectedWindow = filters.window,
+                onWindowChange = onWindowChange,
+                onCalendarClick = {
+                    if (filters.window != "date") {
+                        onDateChange(LocalDate.now(ZoneId.of(timeZone)).toString())
+                    }
+                }
             )
         }
-        item {
-            Button(onClick = { onRefreshLocation(); reloadKey++ }, enabled = !loading) { Text("Refresh") }
-            refreshedAt?.let { Text("Last updated $it") }
+        item { filterControls() }
+        if (filters.window == "date") {
+            item(key = "calendar") {
+                val date = filters.date?.let(LocalDate::parse) ?: LocalDate.now(ZoneId.of(timeZone))
+                EventCalendar(date, onDateChange)
+            }
+            item { Text("Events on ${filters.date}", style = MaterialTheme.typography.titleMedium) }
         }
-        item { Button(onClick = onExplore) { Text("Search and filter in Explore") } }
+
         when {
             nearby == null -> item { Text("Enable location to discover experiences around you.") }
-            loading -> item { CircularProgressIndicator() }
-            error != null -> item { Text(error.orEmpty()) }
-            experiences.isEmpty() -> item { Text("No more experiences today in this location. Try another date or a wider distance in Explore.") }
-            else -> items(experiences, key = { it.id }) { experience ->
-                ExperienceCard(
-                    categories = experience.categories.orEmpty(), priceLabel = experience.priceLabel ?: "Price unknown",
-                    title = experience.title, businessName = experience.businessName,
-                    schedule = experience.schedule, distanceMiles = experience.distanceMiles, offer = experience.offer,
-                    onClick = { onExperienceClick(experience) },
-                    isSaved = experience.id in savedIds, savingEnabled = savingEnabled,
-                    onToggleSave = { onToggleSave(experience) }
-                )
+            isLoading -> {
+                item {
+                    CircularProgressIndicator()
+                }
+            }
+
+            errorMessage != null -> {
+                item {
+                    Text(text = errorMessage.orEmpty())
+                }
+
+                item {
+                    Button(onClick = { reloadKey++ }) {
+                        Text(text = "Retry")
+                    }
+                }
+            }
+
+            experiences.isEmpty() -> {
+                item {
+                    Text(
+                        text = if (query.isEmpty()) {
+                            "Nothing nearby matches these filters. Try a wider radius, another day, or Clear filters."
+                        } else {
+                            "Nothing nearby matches your search. Try fewer keywords, a wider radius, or another day."
+                        }
+                    )
+                }
+            }
+
+            else -> {
+                items(
+                    items = experiences,
+                    key = { experience -> experience.id }
+                ) { experience ->
+                    ExperienceCard(
+                        categories = experience.categories.orEmpty(), priceLabel = experience.priceLabel ?: "Price unknown",
+                    title = experience.title,
+                        businessName = experience.businessName,
+                        schedule = experience.schedule, distanceMiles = experience.distanceMiles,
+                        offer = experience.offer,
+                        onClick = { onExperienceClick(experience) },
+                        isSaved = experience.id in savedIds,
+                        savingEnabled = savingEnabled,
+                        onToggleSave = { onToggleSave(experience) }
+                    )
+                }
             }
         }
     }

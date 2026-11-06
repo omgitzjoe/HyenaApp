@@ -27,7 +27,8 @@ fun ExperienceDetailsScreen(
     latitude: Double? = null,
     longitude: Double? = null,
     eventId: String = "",
-    priceLabel: String = "Price unknown"
+    priceLabel: String = "Price unknown",
+    reminderSettings: @Composable () -> Unit = {}
 ) {
     val context = LocalContext.current
     var reportOpen by remember { mutableStateOf(false) }
@@ -61,6 +62,7 @@ fun ExperienceDetailsScreen(
             }) { Text("Get directions") }
         } else Text("Directions are unavailable because this event has no venue coordinates.", style = MaterialTheme.typography.bodySmall)
         directionsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        reminderSettings()
         Button(onClick = onToggleSave, enabled = savingEnabled, modifier = Modifier.fillMaxWidth()) {
             Text(if (isSaved) "Remove from saved" else "Save this experience")
         }

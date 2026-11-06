@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -56,9 +57,9 @@ import com.example.hyenaapp.ui.components.DiscoveryFiltersPanel
 import com.example.hyenaapp.ui.components.LocationTracker
 import com.example.hyenaapp.ui.components.LocationControls
 import com.example.hyenaapp.ui.details.ExperienceDetailsScreen
-import com.example.hyenaapp.ui.explore.ExploreScreen
 import com.example.hyenaapp.ui.home.HomeScreen
 import com.example.hyenaapp.ui.submit.SubmitEventScreen
+import com.example.hyenaapp.ui.saved.ReminderControls
 import com.example.hyenaapp.ui.saved.SavedScreen
 import java.time.ZoneId
 import kotlin.coroutines.cancellation.CancellationException
@@ -100,7 +101,8 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
                     val updated = SavedExperienceCodec.toggle(savedExperiences, experience)
                     savedStore.save(updated)
                     savedExperiences = updated
-                    reminders.retainSaved(updated.map { it.id }.toSet())
+                    if (updated.none { it.id == experience.id }) reminders.cancel(experience.id)
+                    reminders.updateSaved(updated)
                     savedError = null
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -131,6 +133,7 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
         })
     }
 
+    val screenState = rememberSaveableStateHolder()
     var selectedTab by rememberSaveable { mutableStateOf(if ((context as? android.app.Activity)?.intent?.action == "com.example.hyenaapp.OPEN_SAVED") "Saved" else "Home") }
     var showingSubmission by rememberSaveable { mutableStateOf(false) }
     var showingDetails by rememberSaveable { mutableStateOf(false) }
@@ -201,10 +204,10 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
     }, bottomBar = {
         if (!showingDetails && !showingSubmission) {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                listOf("Home", "Explore", "Saved").forEach { tab ->
+                listOf("Home", "Saved").forEach { tab ->
                     NavigationBarItem(
-                        selected = selectedTab == tab, onClick = { selectedTab = tab },
-                        icon = { Icon(painterResource(when (tab) { "Home" -> R.drawable.ic_home; "Explore" -> R.drawable.ic_explore; else -> R.drawable.ic_saved }), contentDescription = null) }, label = { Text(tab) }
+                        selected = if (tab == "Home") selectedTab != "Saved" else selectedTab == "Saved", onClick = { selectedTab = tab },
+                        icon = { Icon(painterResource(if (tab == "Home") R.drawable.ic_home else R.drawable.ic_saved), contentDescription = null) }, label = { Text(tab) }
                     )
                 }
             }
@@ -230,37 +233,31 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
                         latitude = detailLatitude, longitude = detailLongitude,
                         schedule = displaySchedule(experience, timeZone), offer = detailOffer,
                         onBack = { showingDetails = false }, isSaved = detailId in savedIds,
-                        savingEnabled = savingEnabled, onToggleSave = { toggleSave(experience) }
-                    )
-                } else when (selectedTab) {
-                    "Home" -> HomeScreen(
-                        nearby = nearby, radiusMiles = radiusMiles,
-                        timeZone = timeZone, locationControls = locationControls,
-                        savedIds = savedIds,
-                        savingEnabled = savingEnabled, onToggleSave = toggleSave,
-                        onExperienceClick = openExperience, onRefreshLocation = { resetKey++ }, onExplore = { selectedTab = "Explore" },
-                        onQuickSearch = { window ->
-                            updateFilters(filters.copy(window = window, date = null))
-                            selectedTab = "Explore"
-                        },
-                        onCalendarClick = {
-                            val date = filters.date ?: java.time.LocalDate.now(ZoneId.of(timeZone)).toString()
-                            updateFilters(filters.copy(window = "date", date = date))
-                            selectedTab = "Explore"
+                        savingEnabled = savingEnabled, onToggleSave = { toggleSave(experience) },
+                        reminderSettings = {
+                            savedExperiences.firstOrNull { it.id == detailId }?.let { saved ->
+                                ReminderControls(reminders, savedExperiences, saved, savingEnabled)
+                            }
                         }
                     )
-                    "Explore" -> ExploreScreen(
+                } else when (selectedTab) {
+                    "Saved" -> screenState.SaveableStateProvider("saved") {
+                        SavedScreen(
+                            experiences = savedExperiences.map { it.copy(distanceMiles = distanceFrom(nearby, it)) }.sortedBy { it.distanceMiles ?: Double.MAX_VALUE }, timeZone = timeZone, loading = savesLoading, available = savesReady,
+                            savingEnabled = savingEnabled, onToggleSave = toggleSave,
+                            onExperienceClick = openExperience,
+                            reminderSettings = {
+                                ReminderControls(reminders, savedExperiences, enabled = savingEnabled)
+                            }
+                        )
+                    }
+                    else -> HomeScreen(
                         nearby = nearby, radiusMiles = radiusMiles,
                         timeZone = timeZone, locationControls = locationControls,
                         filters = filters, filterControls = filterControls,
                         onWindowChange = { window -> updateFilters(filters.copy(window = window, date = null)) },
                         onDateChange = { date -> updateFilters(filters.copy(window = "date", date = date)) },
                         savedIds = savedIds,
-                        savingEnabled = savingEnabled, onToggleSave = toggleSave,
-                        onExperienceClick = openExperience
-                    )
-                    "Saved" -> SavedScreen(
-                        experiences = savedExperiences.map { it.copy(distanceMiles = distanceFrom(nearby, it)) }.sortedBy { it.distanceMiles ?: Double.MAX_VALUE }, timeZone = timeZone, loading = savesLoading, available = savesReady,
                         savingEnabled = savingEnabled, onToggleSave = toggleSave,
                         onExperienceClick = openExperience
                     )

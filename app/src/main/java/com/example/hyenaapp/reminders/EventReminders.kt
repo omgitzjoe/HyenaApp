@@ -22,6 +22,7 @@ internal data class EventReminder(val id: String, val title: String, val venue: 
 
 class EventReminders(private val context: Context) {
     private val storage = context.getSharedPreferences("event_reminders", Context.MODE_PRIVATE)
+    private val choices = context.getSharedPreferences("reminder_choices", Context.MODE_PRIVATE)
     private val gson = Gson()
     private val alarm = context.getSystemService(AlarmManager::class.java)
     private fun records(): List<EventReminder> = storage.all.values.mapNotNull {
@@ -40,7 +41,6 @@ class EventReminders(private val context: Context) {
         }
         alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pending(id))
     }
-    fun diagnostic(): String = context.getSharedPreferences("reminder_diagnostics", Context.MODE_PRIVATE).getString("last", "No delivery attempt recorded yet.")!!
     private fun status(message: String) {
         val time = java.time.ZonedDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("MMM d, h:mm:ss a",java.util.Locale.US))
         context.getSharedPreferences("reminder_diagnostics", Context.MODE_PRIVATE).edit().putString("last", "$time · $message").apply()
@@ -48,14 +48,20 @@ class EventReminders(private val context: Context) {
     fun scheduledTime(id: String): String? = records().firstOrNull { it.id == id }?.let {
         runCatching { Instant.parse(it.start).minusSeconds(it.minutes * 60L).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d · h:mm a", java.util.Locale.US)) }.getOrNull()
     }
-    fun testNotification(delayed: Boolean): Boolean {
-        if (!notificationsAllowed()) return false
-        val start = Instant.now().plusSeconds(if (delayed) 660 else 601)
-        val test = Experience("notification-test", "Hyena reminder test", "Notifications are working", "Test", "Test", start.toString(), start.plusSeconds(600).toString())
-        if (!schedule(test, 10)) return false
-        if (!delayed) deliver(test.id)
-        return true
+    fun defaultMinutes(): Int = choices.getInt("default", 0)
+
+    fun overrideMinutes(id: String): Int? =
+        choices.getInt("event:$id", -1).takeIf { it >= 0 }
+
+    fun setLeadTime(id: String?, minutes: Int?, experiences: List<Experience>) {
+        val editor = choices.edit()
+        if (id == null) editor.putInt("default", minutes ?: 0)
+        else if (minutes == null) editor.remove("event:$id")
+        else editor.putInt("event:$id", minutes)
+        editor.apply()
+        updateSaved(experiences)
     }
+
     fun minutes(id: String): Int? = records().firstOrNull { it.id == id }?.minutes
     fun notificationsAllowed(): Boolean {
         val permitted = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -64,7 +70,6 @@ class EventReminders(private val context: Context) {
     }
     fun schedule(experience: Experience, minutes: Int): Boolean {
         val trigger = reminderTrigger(experience.occurrenceStart, minutes, System.currentTimeMillis()) ?: return false
-        if (!notificationsAllowed()) return false
         val record = EventReminder(experience.id, experience.title, experience.businessName, experience.occurrenceStart!!, minutes, experience.occurrenceEnd)
         val previous = storage.getString(record.id, null)
         if (!storage.edit().putString(record.id, gson.toJson(record)).commit()) return false
@@ -82,16 +87,45 @@ class EventReminders(private val context: Context) {
         NotificationManagerCompat.from(context).cancel(id, 1)
     }
     fun updateSaved(experiences: List<Experience>) {
-        records().filter { it.end == null }.forEach { record ->
-            experiences.firstOrNull { it.id == record.id }?.occurrenceEnd?.let { end ->
-                storage.edit().putString(record.id,gson.toJson(record.copy(end=end))).commit()
+        val savedIds = experiences.map { it.id }.toSet()
+        val existing = records().associateBy { it.id }
+        val editor = choices.edit()
+        if (!choices.getBoolean("migrated", false)) {
+            // Existing per-event alarms become custom choices.
+            existing.values.filter { it.id in savedIds }.forEach {
+                editor.putInt("event:${it.id}", it.minutes)
+            }
+            editor.putBoolean("migrated", true)
+        }
+        choices.all.keys.filter { it.startsWith("event:") && it.removePrefix("event:") !in savedIds }
+            .forEach { editor.remove(it) }
+        editor.apply()
+
+        existing.keys.filter { it !in savedIds }.forEach(::cancel)
+        experiences.forEach { experience ->
+            val minutes = overrideMinutes(experience.id) ?: defaultMinutes()
+            val previous = existing[experience.id]
+            if (minutes > 0 && previous != null &&
+                previous.minutes == minutes && previous.start == experience.occurrenceStart
+            ) {
+                if (previous.end != experience.occurrenceEnd) {
+                    val updated = previous.copy(end = experience.occurrenceEnd)
+                    storage.edit().putString(previous.id, gson.toJson(updated)).commit()
+                }
+            } else if (reminderTrigger(experience.occurrenceStart, minutes, System.currentTimeMillis()) != null) {
+                schedule(experience, minutes)
+            } else if (previous != null) {
+                cancel(experience.id)
             }
         }
-        retainSaved(experiences.map { it.id }.toSet())
     }
-    fun retainSaved(ids: Set<String>) { records().filter { it.id != "notification-test" && it.id !in ids }.forEach { cancel(it.id) } }
+
     fun restore() {
         records().forEach { record ->
+            if (record.id == "notification-test") {
+                cancel(record.id)
+                return@forEach
+            }
             val now = System.currentTimeMillis()
             val trigger = runCatching { Instant.parse(record.start).toEpochMilli() - record.minutes * 60_000L }.getOrNull()
             val end = runCatching { Instant.parse(record.end ?: record.start).toEpochMilli() }.getOrNull()
@@ -102,6 +136,10 @@ class EventReminders(private val context: Context) {
     }
     @android.annotation.SuppressLint("MissingPermission")
     fun deliver(id: String) {
+        if (id == "notification-test") {
+            cancel(id)
+            return
+        }
         val record = records().firstOrNull { it.id == id } ?: return
         val end = runCatching { Instant.parse(record.end ?: record.start).toEpochMilli() }.getOrNull()
         if (end == null || end <= System.currentTimeMillis()) { cancel(id); status("Expired event reminder discarded: ${record.title}"); return }
