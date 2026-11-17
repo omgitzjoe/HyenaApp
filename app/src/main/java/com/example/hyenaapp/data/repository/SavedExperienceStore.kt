@@ -18,7 +18,7 @@ class SavedExperienceStore(context: Context) {
 
     suspend fun load(): List<Experience> = withContext(Dispatchers.IO) {
         val previous = SavedExperienceCodec.decode(preferences.getString("items", null))
-        val retained = previous.filterNot { it.id in retiredDemoIds || it.occurrenceEnd?.let { end -> !Instant.parse(end).isAfter(Instant.now()) } == true }
+        val retained = previous.filterNot { it.id in retiredDemoIds || isExpiredSavedSnapshot(it) }
         if (retained.size != previous.size && !preferences.edit().putString("items", SavedExperienceCodec.encode(retained)).commit()) {
             throw IOException("Unable to clean retired demonstration saves")
         }
@@ -59,3 +59,6 @@ internal object SavedExperienceCodec {
         if (items.any { it.id == experience.id }) items.filterNot { it.id == experience.id }
         else listOf(experience) + items
 }
+
+internal fun isExpiredSavedSnapshot(item: Experience, now: Instant = Instant.now()): Boolean =
+    item.scheduleKind != "WEEKLY" && item.occurrenceEnd?.let { !Instant.parse(it).isAfter(now) } == true

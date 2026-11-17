@@ -36,7 +36,7 @@ object ExperienceRepository {
                     ?: "No dated occurrence available",
                 offer = dto.description.orEmpty(),
                 occurrenceStart = dto.nextOccurrence?.startsAt,
-                occurrenceEnd = dto.nextOccurrence?.endsAt, hasEndTime = dto.endTime != null, allDay = dto.allDay,
+                occurrenceEnd = dto.nextOccurrence?.endsAt, hasEndTime = dto.endTime != null, allDay = dto.allDay, scheduleKind = dto.scheduleKind,
                 distanceMiles = dto.distanceMiles, latitude = dto.latitude, longitude = dto.longitude,
                 categories = dto.categories.ifEmpty { listOf(com.example.hyenaapp.domain.model.EventCategory("other", "Other", "other")) }, priceLabel = priceLabel(dto.priceAmount, "USD")
             )

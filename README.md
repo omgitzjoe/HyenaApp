@@ -53,8 +53,7 @@ retry identity after edits. Review notes have been removed; review ownership and
 The admin workspace prioritizes community submissions, supports event/venue search and source
 filters, and hides past/withdrawn listings unless the archive checkbox is enabled. Public
 All dates, historical date searches, and event detail endpoints exclude ended events. Ended
-records remain stored for feed identity and review history. Local saved snapshots expire on
-load; other device preferences are preserved.
+records remain stored for feed identity and review history. Ended one-time local snapshots expire on load; recurring saves and other device preferences are preserved.
 
 Feed preview shows only newly discovered IDs. Internal sync still revisits eligible Pending
 entries. Publication checks normalized event titles, occurrence start and venue identity;

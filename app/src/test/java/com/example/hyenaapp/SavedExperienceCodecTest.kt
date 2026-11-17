@@ -2,6 +2,8 @@ package com.example.hyenaapp
 
 import com.example.hyenaapp.data.repository.SavedExperienceCodec
 import com.example.hyenaapp.data.repository.displaySchedule
+import com.example.hyenaapp.data.repository.isExpiredSavedSnapshot
+import java.time.Instant
 import com.example.hyenaapp.domain.model.Experience
 import java.io.IOException
 import org.junit.Assert.assertEquals
@@ -45,4 +47,12 @@ class SavedExperienceCodecTest {
 
     @Test(expected = IOException::class)
     fun partialStorageIsReported() { SavedExperienceCodec.decode("[{\"id\":\"one\"}]") }
+    @Test
+    fun expiryRemovesEndedOneTimeSnapshotsAndPreservesRecurringSaves() {
+        val now = Instant.parse("2026-10-30T00:00:00Z")
+        assertTrue(isExpiredSavedSnapshot(event.copy(scheduleKind = "ONCE"), now))
+        assertTrue(!isExpiredSavedSnapshot(event.copy(scheduleKind = "WEEKLY"), now))
+        assertTrue(!isExpiredSavedSnapshot(event.copy(occurrenceStart = null, occurrenceEnd = null), now))
+    }
+
 }
