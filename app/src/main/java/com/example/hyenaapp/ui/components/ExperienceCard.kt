@@ -26,7 +26,7 @@ fun ExperienceCard(
     savingEnabled: Boolean = true,
     onToggleSave: (() -> Unit)? = null,
     categories: List<EventCategory> = emptyList(),
-    priceLabel: String = "Price unknown"
+    priceLabel: String = ""
 ) {
     Card(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -53,15 +53,14 @@ fun ExperienceCard(
             if (categories.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 categories.distinctBy { it.id }.sortedBy { it.name }.forEach { CategoryChip(it) }
             }
-            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
+            if (priceLabel.isNotBlank()) Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
                 Text(priceLabel, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("WHEN", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 Text(schedule, style = MaterialTheme.typography.titleMedium)
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
+            if (offer.isNotBlank()) Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
                 Text(offer, Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
             onToggleSave?.let { toggle ->

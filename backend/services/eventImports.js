@@ -94,20 +94,14 @@ function rexburgRows(text) {
 }
 
 function eventSchedule(row) {
-    if (!row.start || !row.end || Temporal.ZonedDateTime.compare(row.end, row.start) <= 0) return null;
-    const day = row.start.toPlainDate();
-    const endDay = row.end.toPlainDate();
-    const overnight = !day.equals(endDay);
-    const startTime = row.start.toPlainTime().toString({ smallestUnit: 'second' });
-    const endTime = row.end.toPlainTime().toString({ smallestUnit: 'second' });
-    if (row.allDay ? !day.add({ days: 1 }).equals(endDay) :
-        overnight && (!day.add({ days: 1 }).equals(endDay) || endTime > startTime)) return null;
-    return {
-        kind: 'ONCE', startDate: day.toString(), endDate: day.toString(),
-        startTime: row.allDay ? '00:00:00' : startTime,
-        endTime: row.allDay ? '23:59:00' : endTime,
-        endsNextDay: !row.allDay && overnight, timeZone: zone, allDay: row.allDay
-    };
+ if(!row.start)return null;
+ const start=row.start.toPlainDate();
+ const end=row.end?.toPlainDate();
+ if(row.end && Temporal.ZonedDateTime.compare(row.end,row.start)<=0 && !row.allDay)return null;
+ return {kind:'ONCE',startDate:start.toString(),endDate:row.allDay && end ? end.subtract({days:1}).toString() : end?.toString() || null,
+ startTime:row.allDay?null:row.start.toPlainTime().toString({smallestUnit:'second'}),
+ endTime:row.allDay?null:row.end?.toPlainTime().toString({smallestUnit:'second'}) || null,
+ allDay:Boolean(row.allDay),timeZone:zone};
 }
 
 function normalize(source, rows, now) {
@@ -235,8 +229,8 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
                 const previous = imported.get(item.id);
                 if (!previous) return item;
                 const old = previous.payload.event;
-                const changed = item.schedule && ['startDate', 'startTime', 'endTime', 'endsNextDay', 'allDay']
-                    .some(key => (old.schedule[key] ?? false) !== item.schedule[key]);
+                const changed = item.schedule && ['startDate', 'endDate', 'startTime', 'endTime', 'allDay']
+                    .some(key => (old.schedule?.[key] ?? null) !== (item.schedule[key] ?? null));
                 return { ...item, queuedStatus: previous.status, autoPublishBlocked:previous.auto_publish_blocked,
                     issue: item.issue || (changed || old.title !== item.title ? 'Source details changed. Review the existing submission.' : null) };
             });
@@ -253,13 +247,12 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
             event: importEvent(feed, item, [categoryId])
         });
         if (!parsed.success) throw new ReviewError(400, 'IMPORT_INVALID', 'Check the category, venue details, coordinates, and event schedule.');
-        const location = venue.proposal || (await pool.query(
-            'SELECT latitude, longitude FROM businesses WHERE id=$1 AND is_active', [venue.businessId]
+        const resolvedVenue = parsed.data.payload.venue;
+        const location = resolvedVenue.proposal || (await pool.query(
+            'SELECT latitude, longitude FROM businesses WHERE id=$1 AND is_active', [resolvedVenue.businessId]
         )).rows[0];
-        if (!location || location.latitude == null || location.longitude == null) {
-            throw new ReviewError(400, 'IMPORT_VENUE_REQUIRED', 'Choose a local venue with verified coordinates.');
-        }
-        if (distanceMiles({ latitude: 43.4917, longitude: -112.0339 }, location) > 100) {
+        if (!location) throw new ReviewError(400,'IMPORT_VENUE_REQUIRED','Choose a venue.');
+        if (location.latitude != null && location.longitude != null && distanceMiles({ latitude: 43.4917, longitude: -112.0339 }, location) > 100) {
             throw new ReviewError(400, 'IMPORT_OUTSIDE_RADIUS', 'Choose an event venue within 100 miles of Idaho Falls.');
         }
         const schedule = parsed.data.payload.event.schedule;
@@ -272,13 +265,13 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
     }
     function importEvent(feed, item, categoryIds) {
         return {
-            title: item.title, description: item.description || `Event listed by ${feed.name}. See the source for details.`,
-            type: 'EVENT', priceAmount: null, sourceUrl: item.url, categoryIds, schedule: item.schedule
+            title: item.title, description: item.description || null,
+            type: 'OTHER', priceAmount: null, sourceUrl: item.url, categoryIds, schedule: item.schedule
         };
     }
     function proposal(item) {
-        return { name: item.venueName || item.venue || 'Venue to verify', address: item.address || item.venue || 'Address to verify',
-            city: item.city, latitude: item.latitude, longitude: item.longitude };
+        return { name: item.venueName || item.venue || 'Event location', address: item.address || item.venue || null,
+            city: item.city, state:'ID', latitude: item.latitude, longitude: item.longitude };
     }
     async function dismiss({ source, id }, username) {
         const feed = await load(source);
@@ -312,7 +305,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
             for (const item of feed.items) {
                 if (item.queuedStatus === 'APPROVED' || item.queuedStatus === 'REJECTED' || item.autoPublishBlocked) continue;
                 if (item.issue && item.issue !== 'Missing or unsupported schedule') continue;
-                if (!item.schedule || item.issue === 'Missing or unsupported schedule') {
+                if (!item.schedule || item.issue === 'Missing or unsupported schedule' || (!item.venue && !item.venueName && item.latitude == null)) {
                     const payload={venue:{proposal:proposal(item)},event:importEvent(feed,item,categoryId?[categoryId]:[])};
                     payload.event.schedule=payload.event.schedule || {};
                     const added=await pool.query(
@@ -339,8 +332,9 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
                 else if (item.latitude != null && item.longitude != null) venue={proposal:proposal(item)};
                 else {
                     try {
-                        const resolved=await venueLookup.resolve(proposal(item),{budget});
-                        if (resolved) venue={proposal:resolved};
+                        const proposed=proposal(item);
+                        const resolved=await venueLookup.resolve(proposed,{budget});
+                        venue={proposal:resolved || proposed};
                     } catch { /* Lookup outages leave the candidate available for review. */ }
                 }
                 if (!categoryId) { summary.needsReview++; continue; }

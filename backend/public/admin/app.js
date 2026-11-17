@@ -34,14 +34,15 @@ async function select(id){
     const event=row.payload.event,venue=row.payload.venue,proposal=venue.proposal,s=event.schedule || {};
     const detail=$('detail');detail.replaceChildren(tag(row.status),element('h2',event.title,'detail-title'),element('p',event.description,'event-description'));
     const facts=element('div',undefined,'facts');
-    facts.append(fact('VENUE',proposal?proposal.name+'\n'+proposal.address+', '+proposal.city+'\nProposed venue · '+(proposal.latitude??'Location needed')+', '+(proposal.longitude??''):row.business?row.business.name+'\n'+row.business.address+', '+row.business.city+(row.business.isActive?'':'\nInactive venue'):venue.businessId+'\nVenue unavailable'));
-    facts.append(fact('YOUR LOCAL TIME',row.occurrence?(s.allDay?'All Day at venue · ':'')+new Date(row.occurrence.startsAt).toLocaleString('en-US',{hour12:true})+' – '+new Date(row.occurrence.endsAt).toLocaleString('en-US',{hour12:true}):'Verify the venue location to preview local times.'));
+    facts.append(fact('VENUE',proposal?proposal.name+'\n'+[proposal.address,proposal.city,proposal.state].filter(Boolean).join(', ')+'\nProposed venue · '+(proposal.latitude??'Coordinates not provided')+', '+(proposal.longitude??''):row.business?row.business.name+'\n'+[row.business.address,row.business.city,row.business.state].filter(Boolean).join(', ')+(row.business.isActive?'':'\nInactive venue'):venue.businessId+'\nVenue unavailable'));
+    facts.append(fact('YOUR LOCAL TIME',row.occurrence?(s.allDay?'All Day at venue · ':'')+new Date(row.occurrence.startsAt).toLocaleString('en-US',{hour12:true})+(s.endTime?' – '+new Date(row.occurrence.endsAt).toLocaleString('en-US',{hour12:true}):''):'Verify the venue location to preview local times.'));
     if(event.sourceUrl) {
         const link=sourceLink(event.sourceUrl);
         if(link) detail.append(link);
     }
-    facts.append(fact('PRICE',event.priceAmount===null?'Price unknown':event.priceAmount+' '+event.currency),fact('CATEGORIES',event.categoryIds.map(x=>categoryNames.get(x)||x).join(', ')));
-    if(event.offer)facts.append(fact('OFFER',event.offer));if(event.requirements)facts.append(fact('REQUIREMENTS',event.requirements));detail.append(facts,element('p','Reference '+row.id,'muted'));
+    if(event.priceAmount!=null)facts.append(fact('PRICE',Number(event.priceAmount)===0?'Free':'$'+event.priceAmount));
+    if(event.categoryIds?.length)facts.append(fact('CATEGORIES',event.categoryIds.map(x=>categoryNames.get(x)||x).join(', ')));
+    detail.append(facts,element('p','Reference '+row.id,'muted'));
     if(row.status!=='PENDING'){
         const undo = element('button', 'Undo decision · return to Pending');
         undo.addEventListener('click', async () => {
@@ -66,17 +67,12 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
     const eventEndDate=importField(eventFields,'End date',s.endDate || s.startDate || '','date');
     const eventStart=importField(eventFields,'Start time',s.startTime?.slice(0,5) || '','time');
     const eventEnd=importField(eventFields,'End time',s.endTime?.slice(0,5) || '','time');
-    const overnightLabel=element('label','Ends next day');
-    const overnight=element('input');
-    overnight.type='checkbox';
-    overnight.checked=Boolean(s.endsNextDay);
-    overnightLabel.prepend(overnight);
     const allDayLabel=element('label','All day');
     const allDay=element('input');
     allDay.type='checkbox';
     allDay.checked=Boolean(s.allDay);
     allDayLabel.prepend(allDay);
-    eventFields.append(overnightLabel,allDayLabel);
+    eventFields.append(allDayLabel);
     actions.append(eventFields);
     let editor;
     if (proposal || !row.business || row.business.latitude == null || row.business.longitude == null) {
@@ -92,10 +88,10 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
         if(action==='approve') body.event={
             title:eventTitle.value,
             schedule:{...s,kind:s.kind || 'ONCE',startDate:eventDate.value,endDate:eventEndDate.value || eventDate.value,
-                startTime:allDay.checked?'00:00':eventStart.value,
-                endTime:allDay.checked?'23:59':eventEnd.value,
+                startTime:allDay.checked?null:eventStart.value || null,
+                endTime:allDay.checked?null:eventEnd.value || null,
                 timeZone:s.timeZone || 'America/Denver',weekdays:s.weekdays || [],
-                allDay:allDay.checked,endsNextDay:!allDay.checked && overnight.checked}
+                allDay:allDay.checked}
         };
         if (action==='approve' && editor) {
             try { body.venue=editor.read(); }
@@ -152,8 +148,7 @@ function renderImport(feed, item) {
     card.append(element('summary', item.title));
     const schedule = item.schedule;
     if (schedule) {
-        const time = schedule.allDay ? 'All day' : schedule.startTime.slice(0, 5) + '–' +
-            schedule.endTime.slice(0, 5) + (schedule.endsNextDay ? ' (next day)' : '') + ' Mountain time';
+        const time = schedule.allDay ? 'All day' : (schedule.startTime?.slice(0,5) || 'Time needed') + (schedule.endTime?'–'+schedule.endTime.slice(0,5):'') + ' Mountain time';
         card.append(element('p', schedule.startDate + ' · ' + time));
     }
     card.append(element('p', item.venue || 'Venue missing from feed'));
@@ -189,7 +184,7 @@ function renderImport(feed, item) {
     form.append(categoryLabel);
 
     const editor=venueEditor(form, {
-        name:item.venueName || '', address:item.address || item.venue, city:item.city,
+        name:item.venueName || '', address:item.address || item.venue, city:item.city,state:'ID',
         latitude:item.latitude,longitude:item.longitude
     });
     const queue = element('button', 'Add to Pending', 'primary');
@@ -270,6 +265,8 @@ function venueEditor(parent, initial = {}) {
     address.maxLength=300;
     const city=importField(fieldset,'City',initial.city || '');
     city.maxLength=100;
+    const state=importField(fieldset,'State',initial.state || 'ID');
+    state.maxLength=100;
     const toggleLabel=element('label','Enter latitude and longitude manually');
     const toggle=element('input');
     toggle.type='checkbox';
@@ -283,7 +280,7 @@ function venueEditor(parent, initial = {}) {
     fieldset.append(coordinates);
     let selected=Number.isFinite(initial.latitude) && Number.isFinite(initial.longitude);
     let selectedBusiness;
-    for (const input of [name,address,city]) input.addEventListener('input',()=>{
+    for (const input of [name,address,city,state]) input.addEventListener('input',()=>{
         selected=false;
         selectedBusiness=null;
     });
@@ -314,8 +311,9 @@ function venueEditor(parent, initial = {}) {
                     pick.type='button';
                     pick.addEventListener('click',()=>{
                         name.value=place.name;
-                        address.value=place.address;
-                        city.value=place.city;
+                        address.value=place.address || '';
+                        city.value=place.city || '';
+                        state.value=place.state || 'ID';
                         latitude.value=place.latitude;
                         longitude.value=place.longitude;
                         selected=true;
@@ -336,13 +334,13 @@ function venueEditor(parent, initial = {}) {
             if(toggle.checked && (!latitude.value || !longitude.value || !latitude.checkValidity() || !longitude.checkValidity())) {
                 throw Error('Enter valid latitude and longitude.');
             }
-            if(!toggle.checked && (!address.value.trim() || !city.value.trim())) {
-                throw Error('Enter an address and city or select a venue.');
+            if(!toggle.checked && !selected && (!city.value.trim() || !state.value.trim())) {
+                throw Error('Enter city and state or select a venue.');
             }
             const proposal={
                 name:name.value.trim() || address.value.trim() || 'Event venue',
-                address:address.value.trim() || 'Location provided by coordinates',
-                city:city.value.trim() || 'Unspecified'
+                address:address.value.trim() || null,
+                city:city.value.trim() || null,state:state.value.trim() || null
             };
             if(toggle.checked || selected) {
                 proposal.latitude=Number(latitude.value);

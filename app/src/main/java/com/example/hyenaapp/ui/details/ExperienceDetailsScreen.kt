@@ -27,7 +27,7 @@ fun ExperienceDetailsScreen(
     latitude: Double? = null,
     longitude: Double? = null,
     eventId: String = "",
-    priceLabel: String = "Price unknown",
+    priceLabel: String = "",
     reminderSettings: @Composable () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -40,7 +40,8 @@ fun ExperienceDetailsScreen(
         TextButton(onClick = onBack) { Text("Back to experiences") }
         PageHeader("Experience / Details", title, businessName)
         DetailSection("When", schedule)
-        DetailSection("Price & offer", "$priceLabel\n$offer")
+        if (priceLabel.isNotBlank()) DetailSection("Price", priceLabel)
+        if (offer.isNotBlank()) DetailSection("About", offer)
         OutlinedButton(onClick = {
             val map = if (latitude != null && longitude != null) "\nhttps://www.google.com/maps/search/?api=1&query=$latitude,$longitude" else ""
             val text = "$title\n$businessName\n$schedule\n$priceLabel\n$offer$map\nFound on Hyena — community plans, no paid placement."
@@ -60,7 +61,7 @@ fun ExperienceDetailsScreen(
                     } catch (fallback: ActivityNotFoundException) { directionsError = "Install a map app or browser to get directions." }
                 }
             }) { Text("Get directions") }
-        } else Text("Directions are unavailable because this event has no venue coordinates.", style = MaterialTheme.typography.bodySmall)
+        }
         directionsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         reminderSettings()
         Button(onClick = onToggleSave, enabled = savingEnabled, modifier = Modifier.fillMaxWidth()) {

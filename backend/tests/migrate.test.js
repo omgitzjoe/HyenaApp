@@ -29,14 +29,14 @@ test('startup migrates an existing area database without losing venues, schedule
         await migrate(pool);
         assert.equal((await db.query("SELECT to_regclass('discovery_areas') AS name")).rows[0].name,null);
         const venue = (await db.query('SELECT * FROM businesses')).rows[0];
-        assert.equal(venue.name,'Studio');assert.equal(venue.time_zone,'America/New_York');assert.ok(!('area_id' in venue));
+        assert.equal(venue.name,'Studio');assert.equal(venue.time_zone,undefined);assert.ok(!('area_id' in venue));
         const schedule = (await db.query('SELECT * FROM experience_schedules')).rows[0];
-        assert.equal(schedule.all_day,true);assert.equal(schedule.end_time,'23:59:00');assert.equal(schedule.ends_next_day,false);assert.equal(schedule.time_zone,'America/New_York');
+        assert.equal(schedule.all_day,true);assert.equal(schedule.end_time,'23:59:00');assert.equal(schedule.ends_next_day,undefined);assert.equal(schedule.time_zone,'America/New_York');
         assert.equal((await db.query('SELECT payload FROM event_submissions')).rows[0].payload.venue.proposal.areaId,undefined);
-        await db.query("UPDATE businesses SET time_zone='UTC'");
+        await db.query("UPDATE businesses SET state='NY'");
         await migrate(pool);
-        assert.equal((await db.query('SELECT time_zone FROM businesses')).rows[0].time_zone,'UTC');
-        assert.equal((await db.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n,4);
+        assert.equal((await db.query('SELECT state FROM businesses')).rows[0].state,'NY');
+        assert.equal((await db.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n,5);
         assert.equal(releases,2);
     } finally { await db.close(); }
 });

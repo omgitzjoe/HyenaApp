@@ -41,33 +41,29 @@ function createExperienceRouter({ pool, clock = () => new Date(), logger = conso
                     e.description,
                     e.type,
                     e.price_amount AS "priceAmount",
-                    e.currency,
-                    e.price_label AS "offer",
-                    e.requirements,
-                    e.image_url AS "imageUrl",
+
                     e.source_url AS "sourceUrl",
                     b.id AS "businessId",
                     b.name AS "businessName",
                     b.address,
                     b.city,
-                    b.region,
+                    b.state,
                     b.postal_code AS "postalCode",
                     b.latitude,
                     b.longitude,
-                    b.phone,
-                    b.website_url AS "websiteUrl",
+
                     s.all_day AS "allDay",
                     s.kind AS "scheduleKind",
                     s.start_date::text AS "startDate",
                     s.end_date::text AS "endDate",
                     s.start_time AS "startTime",
                     s.end_time AS "endTime",
-                    s.ends_next_day AS "endsNextDay",
+
                     s.time_zone AS "timeZone",
                     ARRAY(
                         SELECT sd.iso_weekday
                         FROM experience_schedule_days sd
-                        WHERE sd.schedule_id = s.id
+                        WHERE sd.experience_id = s.experience_id
                         ORDER BY sd.iso_weekday
                     ) AS "weekdays",
                     COALESCE(

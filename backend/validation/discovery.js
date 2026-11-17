@@ -77,11 +77,11 @@ function parseDiscoveryQuery(query) {
         if (typeof query.maxPrice !== "string" || !/^\d{1,8}(?:\.\d{1,2})?$/.test(query.maxPrice)) {
             throw new DiscoveryQueryError("INVALID_PRICE", "Maximum price must be from 0 to 99999999.99 with at most two decimal places.");
         }
-        if (typeof query.currency !== "string" || !/^[A-Z]{3}$/.test(query.currency)) {
-            throw new DiscoveryQueryError("INVALID_CURRENCY", "Maximum price requires a three-letter uppercase currency code.");
+        if (query.currency !== undefined && query.currency !== "USD") {
+            throw new DiscoveryQueryError("INVALID_CURRENCY", "Prices are in USD.");
         }
         maxPrice = query.maxPrice;
-        currency = query.currency;
+        currency = "USD";
     } else if (query.maxPrice !== undefined || query.currency !== undefined) {
         throw new DiscoveryQueryError("INVALID_PRICE", "maxPrice and currency require price=max.");
     }

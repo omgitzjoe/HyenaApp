@@ -12,7 +12,7 @@ test('checked-in schema and full seed expose category choices through HTTP', asy
     try {
         await db.waitReady;
         await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations/initial_schema.sql'),'utf8'));
-        await db.exec(fs.readFileSync(path.join(__dirname,'../db/seeds/sample_data.sql'),'utf8'));
+        await db.exec(fs.readFileSync(path.join(__dirname,'fixtures/legacy_sample_data.sql'),'utf8'));
         const app = express();app.use('/categories',createCategoryRouter({pool:db}));
         server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
         const response=await fetch(`http://127.0.0.1:${server.address().port}/categories`);

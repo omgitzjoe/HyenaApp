@@ -13,11 +13,11 @@ function createBusinessRouter({pool,logger=console}) {
         if(!parsed.success)return res.status(400).json({error:{code:'INVALID_VENUE_SEARCH',message:'Provide location coordinates and a radius from 1 to 100 miles, or enable Search all venues.'}});
         const pattern = '%'+parsed.data.q.replace(/[\\%_]/g,'\\$&')+'%';
         try {
-            const result = await pool.query(`SELECT id,name,address,city,latitude,longitude FROM businesses
-                WHERE is_active AND latitude IS NOT NULL AND longitude IS NOT NULL AND (name ILIKE $1 OR address ILIKE $1 OR city ILIKE $1) ORDER BY name,id`,[pattern]);
-            let items = result.rows.map(row=>({...row,timeZone:venueTimeZone(row),...(parsed.data.latitude!==undefined?{distanceMiles:distanceMiles(parsed.data,row)}:{})}));
-            if(parsed.data.searchAll !== 'true')items = items.filter(x => x.distanceMiles <= (parsed.data.radiusMiles ?? 10));
-            if(parsed.data.latitude!==undefined)items.sort((a,b)=>a.distanceMiles-b.distanceMiles||a.id.localeCompare(b.id));
+            const result = await pool.query(`SELECT id,name,address,city,state,latitude,longitude FROM businesses
+                WHERE is_active AND (name ILIKE $1 OR address ILIKE $1 OR city ILIKE $1) ORDER BY name,id`,[pattern]);
+            let items = result.rows.map(row=>({...row,timeZone:venueTimeZone(row),...(parsed.data.latitude!==undefined && row.latitude!=null && row.longitude!=null?{distanceMiles:distanceMiles(parsed.data,row)}:{})}));
+            if(parsed.data.searchAll !== 'true')items = items.filter(x => x.distanceMiles != null && x.distanceMiles <= (parsed.data.radiusMiles ?? 10));
+            if(parsed.data.latitude!==undefined)items.sort((a,b)=>(a.distanceMiles ?? Infinity)-(b.distanceMiles ?? Infinity)||a.id.localeCompare(b.id));
             res.json({items:items.slice(0,50),hasMore:items.length>50});
         } catch(error) {logger.error('Venue search failed:',error.message);res.status(500).json({error:{code:'VENUES_FAILED',message:'Unable to load venues.'}});}
     });

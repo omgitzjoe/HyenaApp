@@ -12,6 +12,8 @@ data class Experience(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val categories: List<EventCategory> = emptyList(),
-    val priceLabel: String = "Price unknown"
+    val priceLabel: String = "",
+    val hasEndTime: Boolean = true,
+    val allDay: Boolean = false
 )
 data class EventCategory(val id: String, val name: String, val slug: String = "")

@@ -24,7 +24,7 @@ async function submitEvent(pool,data,now) {
         if (category.rows.length) data.payload.event.categoryIds=[...new Set(data.payload.event.categoryIds.map(id=>id==='e9d8a249-4259-4b2f-93dc-d75876f293da'?category.rows[0].id:id))];
     }
     const location = data.payload.venue.proposal || (await pool.query("SELECT latitude,longitude FROM businesses WHERE id=$1",[data.payload.venue.businessId])).rows[0];
-    const normalized = {...data.payload.event, schedule: {...data.payload.event.schedule, timeZone: venueTimeZone(location)}};
+    const normalized = {...data.payload.event, schedule: {...data.payload.event.schedule, timeZone: data.payload.event.schedule.timeZone || venueTimeZone(location)}};
     data.payload = {...data.payload, event: normalized};
     const previous=await existingReceipt(pool,data.clientRequestId,data.payload);
     if(previous) return previous;
@@ -57,15 +57,6 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
                     payload = { ...payload, venue: { businessId: published.rows[0].business_id } };
                 }
             }
-            if (!payload.event.categoryIds?.length) {
-                const category = await client.query(
-                    "SELECT id FROM categories WHERE slug IN ('community','hyena-seed-community') ORDER BY slug LIMIT 1"
-                );
-                if (!category.rows.length) {
-                    throw new ReviewError(400, 'CATEGORY_REQUIRED', 'Create a Community category before restoring this feed event.');
-                }
-                payload = { ...payload, event: { ...payload.event, categoryIds: [category.rows[0].id] } };
-            }
             await client.query(
                 `UPDATE event_submissions SET status='PENDING', payload=$2::jsonb,
                  published_experience_id=NULL, reviewed_by=NULL, reviewed_at=NULL, review_note=NULL, auto_publish_blocked=TRUE WHERE id=$1`,
@@ -93,32 +84,38 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
                 venue:{businessId:row.payload.venue.businessId || '00000000-0000-4000-8000-000000000000'},
                 event:updated
             });
-            if (!valid.success) throw new ReviewError(400,'EVENT_DETAILS_REQUIRED','Check the title, date, start time and end time before accepting.');
+            if (!valid.success) throw new ReviewError(400,'EVENT_DETAILS_REQUIRED','Check the title, date and start time, or choose All Day.');
             row.payload={...row.payload,event:valid.data.payload.event};
             let businessId=options.businessId||row.payload.venue.businessId;
             if(!businessId) {
-                const proposed=row.payload.venue.proposal;
+                const validation=require('../validation/submission').proposalSchema.safeParse({
+                    ...row.payload.venue.proposal,
+                    ...(options.latitude!==undefined?{latitude:options.latitude,longitude:options.longitude}:{})
+                });
+                if(!validation.success)throw new ReviewError(400,'VENUE_LOCATION_REQUIRED','Provide city and state, or valid coordinates.');
+                const proposed=validation.data;
+                row.payload.venue={proposal:proposed};
                 const key=[proposed.name,proposed.address,proposed.city].map(value=>String(value).trim().toLowerCase()).join('|');
                 await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[key]);
                 const existingVenue=await client.query(
-                    'SELECT id FROM businesses WHERE is_active AND lower(name)=lower($1) AND lower(address)=lower($2) AND lower(city)=lower($3) LIMIT 1',
-                    [proposed.name,proposed.address,proposed.city]
+                    `SELECT id FROM businesses WHERE is_active AND lower(name)=lower($1) AND lower(COALESCE(address,''))=lower(COALESCE($2,'')) AND lower(COALESCE(city,''))=lower(COALESCE($3,'')) AND state IS NOT DISTINCT FROM $4 AND latitude IS NOT DISTINCT FROM $5::numeric(9,6) AND longitude IS NOT DISTINCT FROM $6::numeric(9,6) LIMIT 1`,
+                    [proposed.name,proposed.address,proposed.city,proposed.state,options.latitude??proposed.latitude,options.longitude??proposed.longitude]
                 );
                 businessId=existingVenue.rows[0]?.id;
                 if (!businessId) {
                 businessId=randomUUID();
-                await client.query(`INSERT INTO businesses(id,name,address,city,region,postal_code,latitude,longitude,time_zone)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[businessId,proposed.name,proposed.address,proposed.city,proposed.region,proposed.postalCode,options.latitude??proposed.latitude,options.longitude??proposed.longitude,venueTimeZone({latitude:options.latitude??proposed.latitude,longitude:options.longitude??proposed.longitude})]);
+                await client.query(`INSERT INTO businesses(id,name,address,city,state,postal_code,latitude,longitude)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,[businessId,proposed.name,proposed.address,proposed.city,proposed.state,proposed.postalCode,options.latitude??proposed.latitude,options.longitude??proposed.longitude]);
                 }
             }
             const location=(await client.query("SELECT latitude,longitude FROM businesses WHERE id=$1 FOR UPDATE",[businessId])).rows[0];
             if (location && (location.latitude == null || location.longitude == null) && options.latitude !== undefined) {
                 location.latitude=options.latitude;location.longitude=options.longitude;
                 const zone=venueTimeZone(location);
-                await client.query('UPDATE businesses SET latitude=$2,longitude=$3,time_zone=$4 WHERE id=$1',[businessId,location.latitude,location.longitude,zone]);
+                await client.query('UPDATE businesses SET latitude=$2,longitude=$3 WHERE id=$1',[businessId,location.latitude,location.longitude]);
                 await client.query('UPDATE experience_schedules SET time_zone=$2 FROM experiences e WHERE e.id=experience_schedules.experience_id AND e.business_id=$1',[businessId,zone]);
             }
-            const event={...row.payload.event,schedule:{...row.payload.event.schedule,timeZone:venueTimeZone(location)}};
+            const event={...row.payload.event,schedule:{...row.payload.event.schedule,timeZone:row.payload.event.schedule.timeZone || venueTimeZone(location)}};
             ensureUnexpired(event,now);
             const published=await publishExperience(client,{...event,businessId});experienceId=published.id;
         }

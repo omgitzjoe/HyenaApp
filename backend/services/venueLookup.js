@@ -13,7 +13,7 @@ function matches(place, input) {
     if (house && place.house === house && words(place.street) === street) return true;
     // A unique named point of interest can resolve an address lacking a building number in OSM.
     return Boolean(input.name && words(input.name) === words(place.name) && place.poi &&
-        (!street || !place.street || words(place.street) === street));
+        (!house || !place.street || words(place.street) === street));
 }
 function parsePlaces(data) {
     if (!Array.isArray(data.features)) throw Error('Unexpected venue search response.');
@@ -27,7 +27,7 @@ function parsePlaces(data) {
         const street = p.street || '';
         const address = [p.housenumber,street].filter(Boolean).join(' ');
         return [{
-            name:p.name || address, address, city, latitude, longitude,
+            name:p.name || address, address, city, state:p.state || null, latitude, longitude,
             street, house:p.housenumber || '', poi:Boolean(p.osm_key && !['place','boundary','highway'].includes(p.osm_key)),
             label:[p.name,address,city,p.state].filter(Boolean).join(', ')
         }];
@@ -73,16 +73,16 @@ function createVenueLookup({ pool, fetcher=fetch, pause=ms=>new Promise(resolve=
         if (eligible.length!==1) return null;
         const place=eligible[0];
         return {name:input.name || place.name,address:input.address || place.address,city:input.city || place.city,
-            latitude:place.latitude,longitude:place.longitude};
+            state:input.state || place.state || null,latitude:place.latitude,longitude:place.longitude};
     }
     async function venue(input, options) {
         if (input?.businessId) return input;
         const proposed=input?.proposal;
-        if (!proposed || typeof proposed.address!=='string' || typeof proposed.city!=='string') {
-            throw new ReviewError(400,'VENUE_REQUIRED','Enter an address and city or choose a venue.');
-        }
+        if (!proposed || !proposed.name) throw new ReviewError(400,'VENUE_REQUIRED','Enter a venue name.');
         if (proposed.latitude != null && proposed.longitude != null) return input;
+        if (!proposed.address && proposed.city && proposed.state) return input;
         const match=await resolve(proposed,options);
+        if (!match && proposed.city && proposed.state) return input;
         if (!match) throw new ReviewError(400,'VENUE_AMBIGUOUS','Select a venue search result or use manual coordinates to confirm this location.');
         return {proposal:{...proposed,...match}};
     }

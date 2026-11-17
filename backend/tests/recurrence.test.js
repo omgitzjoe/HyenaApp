@@ -131,14 +131,14 @@ for (const query of [
     { timeZone: 'Mars/Anywhere' }, { timeZone: ['UTC'] }, { timeZone: '+02:00' }
 ]) test(`rejects malformed location/time zone ${JSON.stringify(query)}`, () => assert.throws(() => parseDiscoveryQuery(query), DiscoveryQueryError));
 
-test('maximum price preserves decimal precision and requires a currency', () => {
+test('maximum price preserves decimal precision and defaults to USD', () => {
     const result = parseDiscoveryQuery({price:'max',maxPrice:'10.50',currency:'USD'});
     assert.equal(result.maxPrice,'10.50'); assert.equal(result.currency,'USD'); assert.equal(result.priceMode,'max');
     assert.equal(parseDiscoveryQuery({price:'max',maxPrice:'0',currency:'USD'}).maxPrice,'0');
-    assert.equal(parseDiscoveryQuery({price:'max',maxPrice:'99999999.99',currency:'CAD'}).maxPrice,'99999999.99');
+    assert.equal(parseDiscoveryQuery({price:'max',maxPrice:'99999999.99'}).maxPrice,'99999999.99');
 });
 for (const query of [
-    {price:'cheap'}, {price:['free']}, {price:'max'}, {price:'max',maxPrice:'10'},
+    {price:'cheap'}, {price:['free']}, {price:'max'}, {price:'max',maxPrice:'10',currency:'CAD'},
     {price:'max',maxPrice:'10',currency:'usd'}, {price:'max',maxPrice:'10',currency:'US'},
     {price:'max',maxPrice:'10',currency:['USD']}, {price:'max',maxPrice:['10'],currency:'USD'},
     {price:'free',maxPrice:'10'}, {currency:'USD'}, {maxPrice:'10'},

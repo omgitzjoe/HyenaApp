@@ -11,10 +11,18 @@ import kotlinx.coroutines.withContext
 
 /** Local snapshots; independent of Explore filters and available offline. */
 class SavedExperienceStore(context: Context) {
+    private val retiredDemoIds: Set<String> = context.assets.open("retired_demo_events.json").bufferedReader().use {
+        Gson().fromJson(it, Array<String>::class.java).toSet()
+    }
     private val preferences = context.applicationContext.getSharedPreferences("saved_experiences", Context.MODE_PRIVATE)
 
     suspend fun load(): List<Experience> = withContext(Dispatchers.IO) {
-        SavedExperienceCodec.decode(preferences.getString("items", null))
+        val previous = SavedExperienceCodec.decode(preferences.getString("items", null))
+        val retained = previous.filterNot { it.id in retiredDemoIds }
+        if (retained.size != previous.size && !preferences.edit().putString("items", SavedExperienceCodec.encode(retained)).commit()) {
+            throw IOException("Unable to clean retired demonstration saves")
+        }
+        retained
     }
 
     suspend fun save(items: List<Experience>) = withContext(Dispatchers.IO) {
@@ -36,12 +44,12 @@ internal object SavedExperienceCodec {
             val items: List<Experience> = gson.fromJson(value, type) ?: throw IOException("Invalid saved data")
             items.forEach { item ->
                 require(item.id.isNotBlank() && item.title.isNotBlank())
-                require(item.businessName.isNotBlank() && item.schedule.isNotBlank() && item.offer.isNotBlank())
+                require(item.businessName.isNotBlank() && item.schedule.isNotBlank())
                 require((item.occurrenceStart == null) == (item.occurrenceEnd == null))
                 item.occurrenceStart?.let { Instant.parse(it) }
                 item.occurrenceEnd?.let { Instant.parse(it) }
             }
-            return items.distinctBy { it.id }.map { it.copy(categories = it.categories.orEmpty(), priceLabel = it.priceLabel ?: "Price unknown") }
+            return items.distinctBy { it.id }.map { it.copy(offer = it.offer.orEmpty().takeUnless { value -> value == "Price not listed" || value == "Price unknown" }.orEmpty(), categories = it.categories.orEmpty(), priceLabel = it.priceLabel?.takeUnless { value -> value == "Price unknown" } ?: "") }
         } catch (error: Exception) {
             throw IOException("Unable to read saved experiences", error)
         }

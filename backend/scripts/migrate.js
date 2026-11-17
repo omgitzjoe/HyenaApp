@@ -1,7 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-// Only additive application migrations belong here. Never run schema/seed resets.
+// Versioned application migrations; seed cleanup is limited to explicit fictional IDs.
 async function migrate(pool) {
     const client = await pool.connect();
     let locked = false;
@@ -10,7 +10,7 @@ async function migrate(pool) {
         await client.query('SELECT pg_advisory_lock(194712, 2)');
         locked = true;
         await client.query('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)');
-        for (const name of ['002_event_submissions.sql', '003_location_discovery.sql', '004_event_reports.sql', '005_venue_lookup.sql']) {
+        for (const name of ['002_event_submissions.sql', '003_location_discovery.sql', '004_event_reports.sql', '005_venue_lookup.sql', '006_lightweight_calendar.sql']) {
             if ((await client.query('SELECT name FROM schema_migrations WHERE name=$1', [name])).rows.length) continue;
             const sql = await fs.readFile(path.join(__dirname, '../db/migrations', name), 'utf8');
             await client.query('BEGIN');

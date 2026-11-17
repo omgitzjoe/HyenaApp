@@ -129,8 +129,7 @@ router.patch("/experiences/:id", async (req, res) => {
     const allowedColumns = {
         title: "title",
         description: "description",
-        offer: "price_label",
-        requirements: "requirements"
+        type: "type"
     };
 
     const values = [];
@@ -157,8 +156,7 @@ router.patch("/experiences/:id", async (req, res) => {
                 id,
                 title,
                 description,
-                price_label AS "offer",
-                requirements,
+                type,
                 is_active AS "isActive",
                 updated_at AS "updatedAt"
         `, values);

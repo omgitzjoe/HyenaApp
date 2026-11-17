@@ -1,3 +1,5 @@
+-- Historical bootstrap. Apply all versioned migrations afterward.
+-- Current schema reference: ../schema.sql. Production seed files contain categories only.
 CREATE TABLE businesses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     time_zone TEXT,

@@ -104,13 +104,15 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
     var allDay by rememberSaveable { mutableStateOf(false) }
     var unknownPrice by rememberSaveable { mutableStateOf(true) }
     var price by rememberSaveable { mutableStateOf("") }
-    var offer by rememberSaveable { mutableStateOf("") }
-    var requirements by rememberSaveable { mutableStateOf("") }
     var dateTouched by rememberSaveable { mutableStateOf(false) }
     var date by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
     var startTime by rememberSaveable { mutableStateOf("18:00") }
     var endTime by rememberSaveable { mutableStateOf("20:00") }
-    var endsNextDay by rememberSaveable { mutableStateOf(false) }
+    var endDate by rememberSaveable { mutableStateOf("") }
+    var hasEndTime by rememberSaveable { mutableStateOf(false) }
+    var manualCoordinates by rememberSaveable { mutableStateOf(false) }
+    var state by rememberSaveable { mutableStateOf("ID") }
+    var pickingEndDate by remember { mutableStateOf(false) }
     var requestId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var receiptId by rememberSaveable { mutableStateOf<String?>(null) }
     var receiptStatus by rememberSaveable { mutableStateOf("") }
@@ -166,23 +168,22 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
         if (submitting) return
         val problem = when {
             title.isBlank() -> "Enter an event title."
-            description.isBlank() -> "Describe the event."
-            categoryIds.isEmpty() -> "Choose a category."
             !proposed && businessId.isBlank() -> "Choose an existing venue or propose a new one."
-            proposed && (venueName.isBlank() || address.isBlank() || city.isBlank()) -> "Enter the proposed venue name, address, and city."
-            proposed && (latitude.toDoubleOrNull()?.let { it.isFinite() && it in -90.0..90.0 } != true || longitude.toDoubleOrNull()?.let { it.isFinite() && it in -180.0..180.0 } != true) -> "Locate the venue or enter valid latitude and longitude."
+            proposed && venueName.isBlank() -> "Enter the venue name."
+            proposed && !manualCoordinates && (city.isBlank() || state.isBlank()) -> "Enter city and state, or use coordinates."
+            proposed && manualCoordinates && (latitude.toDoubleOrNull()?.let { it.isFinite() && it in -90.0..90.0 } != true || longitude.toDoubleOrNull()?.let { it.isFinite() && it in -180.0..180.0 } != true) -> "Locate the venue or enter valid latitude and longitude."
             !unknownPrice && !Regex("(0|[1-9]\\d{0,7})(\\.\\d{1,2})?").matches(price.trim()) -> "Enter a nonnegative USD price with up to two decimal places, or choose Price unknown."
-            !allDay && (!Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(startTime) || !Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(endTime)) -> "Choose a valid start and end time."
-            (!allDay && (if (endsNextDay) endTime > startTime else endTime <= startTime)) -> "Check the end time and Ends next day option."
+            !allDay && (!Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(startTime) || (hasEndTime && !Regex("([01]\\d|2[0-3]):[0-5]\\d").matches(endTime))) -> "Choose a valid start and end time."
+            endDate.isNotBlank() && endDate < date -> "End date must follow the start date."
+            !allDay && hasEndTime && (endDate.isBlank() || endDate == date) && endTime <= startTime -> "Choose a later end date for an overnight event."
             else -> null
         }
         if (problem != null) { message = problem; return }
-        val venue = if (proposed) SubmissionVenue(proposal = VenueProposal(latitude.toDouble(), longitude.toDouble(), venueName.trim(), address.trim(), city.trim())) else SubmissionVenue(businessId = businessId)
+        val venue = if (proposed) SubmissionVenue(proposal = VenueProposal(latitude.toDoubleOrNull(), longitude.toDoubleOrNull(), venueName.trim(), address.trim().ifBlank { null }, city.trim().ifBlank { null }, state.trim().ifBlank { null })) else SubmissionVenue(businessId = businessId)
         val body = EventSubmissionRequest(requestId, venue, SubmittedEvent(
-            title.trim(), description.trim(), categoryIds.toList(),
-            SubmissionSchedule(date, date, if (allDay) "00:00" else startTime, if (allDay) "23:59" else endTime, if (allDay) false else endsNextDay, allDay),
-            if (unknownPrice) null else price.trim(), if (unknownPrice) null else "USD",
-            offer.trim().takeIf { it.isNotEmpty() }, requirements.trim().takeIf { it.isNotEmpty() }
+            title.trim(), description.trim().ifBlank { null }, categoryIds.toList(),
+            SubmissionSchedule(date, endDate.ifBlank { null }, if (allDay) null else startTime, if (allDay || !hasEndTime) null else endTime, allDay),
+            if (unknownPrice) null else price.trim()
         ))
         submitting = true
         message = null
@@ -207,7 +208,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
             item { Button(onClick = onDone) { Text("Done") } }
             item { OutlinedButton(onClick = {
                 receiptId = null; title = ""; description = ""; price = ""; unknownPrice = true
-                offer = ""; requirements = ""; businessId = ""; businessName = ""; venueName = ""; address = ""; city = ""
+                endDate = ""; hasEndTime = false; businessId = ""; businessName = ""; venueName = ""; address = ""; city = ""
                 dateTouched = false; latitude = ""; longitude = ""; allDay = false; venueQuery = ""; businessAddress = ""; requestId = UUID.randomUUID().toString(); message = null
             }) { Text("Submit another event") } }
         } else {
@@ -215,13 +216,13 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
             if (loading) item { CircularProgressIndicator() }
             if (referenceError != null) item { Text(referenceError.orEmpty()); Button(onClick = { reload++ }) { Text("Retry reference data") } }
             item { Entry("Event title", title, 200, !submitting) { title = it; edited() } }
-            item { Entry("Description", description, 10000, !submitting, multiline = true) { description = it; edited() } }
-            item { Text("Categories (choose one or more)", style = MaterialTheme.typography.titleMedium) }
+            item { Entry("Description (optional)", description, 10000, !submitting, multiline = true) { description = it; edited() } }
+            item { Text("Categories (optional)", style = MaterialTheme.typography.titleMedium) }
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     categories.forEach { category -> FilterChip(selected = category.id in categoryIds, onClick = { categoryIds = ArrayList(if (category.id in categoryIds) categoryIds - category.id else categoryIds + category.id); edited() }, enabled = !submitting, label = { Text(category.name) }) }
                 }
-                if (!loading && categories.isEmpty()) Text("No categories available. Ask the administrator to add categories.")
+                if (!loading && categories.isEmpty()) Text("No category selected: Other.")
             }
             item { FormSection("The venue", "Choose a venue or locate a new one by its address.") }
             item {
@@ -232,12 +233,14 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
             }
             if (proposed) {
                 item { Entry("Venue name", venueName, 200, !submitting) { venueName = it; edited() } }
-                item { Entry("Street address", address, 300, !submitting && !resolving) { address = it; latitude = ""; longitude = ""; edited() } }
+                item { Entry("Street address (optional)", address, 300, !submitting && !resolving) { address = it; latitude = ""; longitude = ""; edited() } }
                 item { Entry("City", city, 100, !submitting && !resolving) { city = it; latitude = ""; longitude = ""; edited() } }
+                item { Entry("State", state, 100, !submitting) { state = it; edited() } }
+                item { Row { Checkbox(checked = manualCoordinates, onCheckedChange = { manualCoordinates = it; edited() }); Text("Enter coordinates instead") } }
                 item { OutlinedButton(onClick = { resolveAddress() }, enabled = !submitting && !resolving && address.isNotBlank() && city.isNotBlank()) { Text(if (resolving) "Locating venue…" else "Locate address") } }
                 if (nearby != null) item { TextButton(onClick = { latitude = nearby.latitude.toString(); longitude = nearby.longitude.toString(); edited() }, enabled = !submitting && !resolving) { Text("Use my position — venue is here") } }
-                item { Entry("Venue latitude", latitude, 20, !submitting && !resolving) { latitude = it; edited() } }
-                item { Entry("Venue longitude", longitude, 20, !submitting && !resolving) { longitude = it; edited() } }
+                if (manualCoordinates) item { Entry("Venue latitude", latitude, 20, !submitting && !resolving) { latitude = it; edited() } }
+                if (manualCoordinates) item { Entry("Venue longitude", longitude, 20, !submitting && !resolving) { longitude = it; edited() } }
                 item { Text("Check the coordinates match the venue. Its schedule is interpreted at this location automatically.") }
             } else {
                 item {
@@ -273,14 +276,14 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
                     items(businesses.take(8), key = { "venue-${it.id}" }) { venue ->
                         Surface(
                             modifier = Modifier.fillMaxWidth().clickable(enabled = !submitting && !venueLoading) {
-                                businessId = venue.id; businessName = venue.name; businessAddress = "${venue.address}, ${venue.city}"; venueQuery = venue.name
+                                businessId = venue.id; businessName = venue.name; businessAddress = listOfNotNull(venue.address, venue.city, venue.state).joinToString(", "); venueQuery = venue.name
                                 edited(); keyboard?.hide()
                             }, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(venue.name, style = MaterialTheme.typography.titleSmall)
-                                Text("${venue.address}, ${venue.city}", style = MaterialTheme.typography.bodyMedium)
+                                Text(listOfNotNull(venue.address, venue.city, venue.state).joinToString(", "), style = MaterialTheme.typography.bodyMedium)
                                 venue.distanceMiles?.let { Text(String.format(Locale.US, "%.1f mi away", it), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
                             }
                         }
@@ -290,26 +293,22 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
                 }
             }
             item { FormSection("Date & time", "Enter the times at the venue. Everyone sees the event in their own local time.") }
-            item { OutlinedButton(onClick = { showDate = true }, enabled = !submitting) { Text("Event date: $date") } }
+            item { OutlinedButton(onClick = { pickingEndDate = false; showDate = true }, enabled = !submitting) { Text("Event date: $date") } }
             item { OutlinedButton(onClick = { editingTime = "start" }, enabled = !submitting && !allDay, modifier = Modifier.fillMaxWidth()) { Text("Start time: ${LocalTime.parse(if (allDay) "00:00" else startTime).format(displayTime)}") } }
-            item { OutlinedButton(onClick = { editingTime = "end" }, enabled = !submitting && !allDay, modifier = Modifier.fillMaxWidth()) { Text("End time: ${LocalTime.parse(if (allDay) "23:59" else endTime).format(displayTime)}") } }
+            item { Row { Checkbox(checked = hasEndTime, onCheckedChange = { hasEndTime = it; edited() }, enabled = !submitting && !allDay); Text("Add end time") } }
+            item { OutlinedButton(onClick = { pickingEndDate = true; showDate = true }, enabled = !submitting) { Text("End date (optional): ${endDate.ifBlank { "same day" }}") }; if (endDate.isNotBlank()) TextButton(onClick = { endDate = ""; edited() }) { Text("Clear end date") } }
+            if (hasEndTime && !allDay) item { OutlinedButton(onClick = { editingTime = "end" }, enabled = !submitting && !allDay, modifier = Modifier.fillMaxWidth()) { Text("End time: ${LocalTime.parse(if (allDay) "23:59" else endTime).format(displayTime)}") } }
             item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.weight(1f)) {
-                    Checkbox(checked = endsNextDay && !allDay, onCheckedChange = { endsNextDay = it; edited() }, enabled = !submitting && !allDay)
-                    Text("Ends next day", modifier = Modifier.weight(1f))
-                }
                 Row(Modifier.weight(1f)) {
                     Checkbox(checked = allDay, onCheckedChange = { allDay = it; edited() }, enabled = !submitting)
                     Text("All Day", modifier = Modifier.weight(1f))
                 }
             } }
-            item { FormSection("Price & details", "Make costs and participation requirements clear.") }
+            item { FormSection("Price", "Optional. Enter 0 for a free event.") }
             item { Row { Checkbox(checked = unknownPrice, onCheckedChange = { unknownPrice = it; edited() }, enabled = !submitting); Text("Price unknown") } }
             if (!unknownPrice) item { Entry("Price in USD (0 for free)", price, 11, !submitting) { price = it; edited() } }
-            item { Entry("Offer or price details (optional)", offer, 2000, !submitting) { offer = it; edited() } }
-            item { Entry("Requirements (optional)", requirements, 2000, !submitting) { requirements = it; edited() } }
             if (message != null) item { Text(message.orEmpty(), color = MaterialTheme.colorScheme.error) }
-            item { Button(onClick = { submit() }, enabled = !submitting && !resolving && !loading && referenceError == null) { Text(if (submitting) "Sending…" else "Submit for review") } }
+            item { Button(onClick = { submit() }, enabled = !submitting && !resolving) { Text(if (submitting) "Sending…" else "Submit for review") } }
         }
     }
     if (editingTime != null) {
@@ -325,10 +324,10 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
             }, dismissButton = { TextButton(onClick = { editingTime = null }) { Text("Cancel") } })
     }
     if (showDate) {
-        val state = rememberDatePickerState(initialSelectedDateMillis = LocalDate.parse(date).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
+        val state = rememberDatePickerState(initialSelectedDateMillis = LocalDate.parse(if (pickingEndDate) endDate.ifBlank { date } else date).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
         DatePickerDialog(onDismissRequest = { showDate = false }, confirmButton = {
             TextButton(enabled = state.selectedDateMillis != null, onClick = {
-                state.selectedDateMillis?.let { date = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString(); dateTouched = true; edited() }
+                state.selectedDateMillis?.let { val chosenDate = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString(); if (pickingEndDate) endDate = chosenDate else date = chosenDate; dateTouched = true; edited() }
                 showDate = false
             }) { Text("Choose date") }
         }, dismissButton = { TextButton(onClick = { showDate = false }) { Text("Cancel") } }) { DatePicker(state = state) }

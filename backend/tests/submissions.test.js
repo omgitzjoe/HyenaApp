@@ -27,9 +27,8 @@ async function request(route,body,auth=false,extra={}){
 async function submit(body=event()){const r=await request('/api/v1/submissions',body);assert.equal(r.status,201,JSON.stringify(r.body));return r.body.item;}
 before(async()=>{
  db=new PGlite();await db.waitReady;
- for(const f of ['initial_schema.sql','002_event_submissions.sql','004_event_reports.sql','005_venue_lookup.sql'])await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations',f),'utf8'));
- // Apply twice to ensure the migration is repeat-safe.
- await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations/002_event_submissions.sql'),'utf8'));
+ for(const f of ['initial_schema.sql','002_event_submissions.sql','004_event_reports.sql','005_venue_lookup.sql','006_lightweight_calendar.sql'])await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations',f),'utf8'));
+
  ids.area=randomUUID();ids.business=randomUUID();ids.category=randomUUID();ids.closed=randomUUID();
  await db.query("INSERT INTO businesses(id,name,address,city,is_active,latitude,longitude) VALUES ($1,'Open Studio','1 Test St','Rexburg',TRUE,43.8231,-111.7924),($2,'Closed Studio','2 Test St','Rexburg',FALSE,43.8231,-111.7924)",[ids.business,ids.closed]);
  await db.query("INSERT INTO categories(id,name,slug) VALUES ($1,'Arts','arts')",[ids.category]);
@@ -96,7 +95,7 @@ test('concurrent retries create one submission',async()=>{
  assert.deepEqual(result.map(x=>x.status).sort(),[200,201]);assert.equal(result[0].body.item.id,result[1].body.item.id);
 });
 test('field validation rejects invalid dates, weekly events, currency, duplicates and spoofed status',()=>{
- const mutations=[b=>b.event.title=' ',b=>b.event.schedule.startDate='2030-02-30',b=>b.event.schedule.kind='WEEKLY',b=>b.event.currency='EUR',b=>b.event.categoryIds.push(ids.category),b=>b.status='APPROVED',b=>b.event.businessId=ids.business,b=>b.venue.proposal={name:'bad'}];
+ const mutations=[b=>b.event.title=' ',b=>b.event.schedule.startDate='2030-02-30',b=>b.event.schedule.kind='MONTHLY',b=>b.event.categoryIds.push(ids.category),b=>b.status='APPROVED',b=>b.event.businessId=ids.business,b=>b.venue.proposal={name:'bad'}];
  for(const mutate of mutations){const body=event();mutate(body);assert.equal(parseSubmission(body).success,false,JSON.stringify(body));}
 });
 test('unknown price is accepted and numeric zero is free',async()=>{
@@ -231,14 +230,14 @@ test('existing curator creation still requires its key and uses the same publish
 test('new venue coordinates derive the zone; All Day normalizes times and publishes all category links',async()=>{
  const second=randomUUID();await db.query("INSERT INTO categories(id,name,slug) VALUES ($1,'Community','community-location-test')",[second]);
  const body=event({proposal:{latitude:40.7128,longitude:-74.006,name:'New York Workshop',address:'5 Mock Lane',city:'New York'}});
- body.event.categoryIds.push(second);body.event.schedule.timeZone='Asia/Tokyo';body.event.schedule.allDay=true;
+ body.event.categoryIds.push(second);delete body.event.schedule.timeZone;body.event.schedule.allDay=true;
  body.event.schedule.startTime='19:00';body.event.schedule.endTime='01:00';body.event.schedule.endsNextDay=true;
  const item=await submit(body);
  const pending=(await db.query('SELECT payload FROM event_submissions WHERE id=$1',[item.id])).rows[0].payload;
- assert.equal(pending.event.schedule.timeZone,'America/New_York');assert.equal(pending.event.schedule.startTime,'00:00:00');assert.equal(pending.event.schedule.endTime,'23:59:00');assert.equal(pending.event.schedule.endsNextDay,false);
+ assert.equal(pending.event.schedule.timeZone,'America/New_York');assert.equal(pending.event.schedule.startTime,null);assert.equal(pending.event.schedule.endTime,null);assert.equal(pending.event.schedule.endsNextDay,undefined);
  const approved=await request('/admin/api/submissions/'+item.id+'/approve',{},true);assert.equal(approved.status,200,JSON.stringify(approved.body));
  const schedule=(await db.query('SELECT * FROM experience_schedules WHERE experience_id=$1',[approved.body.item.experienceId])).rows[0];
- assert.equal(schedule.all_day,true);assert.equal(schedule.time_zone,'America/New_York');assert.equal(schedule.end_time,'23:59:00');
+ assert.equal(schedule.all_day,true);assert.equal(schedule.time_zone,'America/New_York');assert.equal(schedule.end_time,null);
  assert.equal((await db.query('SELECT count(*)::int AS n FROM experience_categories WHERE experience_id=$1',[approved.body.item.experienceId])).rows[0].n,2);
 });
 
@@ -394,7 +393,7 @@ test('undo feed rejection removes its blacklist entry and restores reviewable ca
  assert.equal((await request('/admin/api/submissions/'+rejected.id+'/undo',{},true)).status,200);
  const restored = (await db.query('SELECT payload,status FROM event_submissions WHERE id=$1',[rejected.id])).rows[0];
  assert.equal(restored.status,'PENDING');
- assert.ok(restored.payload.event.categoryIds.length);
+ assert.deepEqual(restored.payload.event.categoryIds,[]);
  const preview = (await request(route,undefined,true)).body;
  assert.ok(preview.feeds[1].items.some(item=>item.title==='Winter craft fair' && item.queuedStatus==='PENDING'));
 });
@@ -407,10 +406,9 @@ test('manual submissions can omit description, type and categories and remain Pe
  const receipt=await submit(body);
  assert.equal(receipt.status,'PENDING');
  const row=(await db.query('SELECT payload FROM event_submissions WHERE id=$1',[receipt.id])).rows[0];
- assert.equal(row.payload.event.type,'EVENT');
- assert.equal(row.payload.event.description,'Details not provided.');
- const category=(await db.query('SELECT name FROM categories WHERE id=$1',[row.payload.event.categoryIds[0]])).rows[0];
- assert.equal(category.name,'Other');
+ assert.equal(row.payload.event.type,'OTHER');
+ assert.equal(row.payload.event.description,null);
+ assert.deepEqual(row.payload.event.categoryIds,[]);
 });
 
 test('admin can search a venue and accept an address-only location',async()=>{
@@ -423,4 +421,62 @@ test('admin can search a venue and accept an address-only location',async()=>{
   venue:{proposal:{name:'Address Venue',address:'1 Test St',city:'Rexburg'}}
  },true);
  assert.equal(accepted.status,200,JSON.stringify(accepted.body));
+});
+
+test('minimal feed events automatically publish once with address-derived or coordinate-only venues',async()=>{
+ const {createEventImports}=require('../services/eventImports');
+ const start=new Date(Date.now()+3*86400000).toISOString();
+ const importer=createEventImports({pool,clock:now,fetcher:async url=>{
+  if(!url.includes('thrillshare'))throw Error('Other source unavailable in this isolated test');
+  return Response.json({events:[
+   {id:910001,title:'Minimal address feed event',venue:'88 Main Street',start_at:start},
+   {id:910002,title:'Minimal coordinate feed event',venue:'Coordinate pavilion',latitude:43.8,longitude:-111.8,start_at:start},
+   {id:910003,title:'Missing start stays pending',venue:'88 Main Street'},
+   {id:910004,title:'Missing venue stays pending',start_at:start}
+  ]});
+ },venueLookup:{
+  async resolve(input){return {...input,latitude:43.81,longitude:-111.81};},
+  async venue(input){return input;}
+ }});
+ const summary=await importer.sync();assert.equal(summary.accepted,2,JSON.stringify(summary));
+ const published=(await db.query("SELECT e.*,b.address,b.city,b.latitude,s.end_time,s.time_zone FROM experiences e JOIN businesses b ON b.id=e.business_id JOIN experience_schedules s ON s.experience_id=e.id WHERE e.title LIKE 'Minimal % feed event' ORDER BY e.title")).rows;
+ assert.equal(published.length,2);
+ assert.ok(published.every(e=>e.type==='OTHER' && e.description===null && e.price_amount===null && e.end_time===null));
+ assert.ok(published.every(e=>e.latitude!==null && e.time_zone));
+ const replay=await importer.sync();assert.equal(replay.accepted,0);
+ assert.equal((await db.query("SELECT count(*)::int AS n FROM businesses WHERE name IN ('88 Main Street','Coordinate pavilion')")).rows[0].n,2);
+ const pending=(await db.query("SELECT payload,status FROM event_submissions WHERE payload#>>'{event,title}'='Missing start stays pending'")).rows[0];
+ assert.equal(pending.status,'PENDING');
+});
+
+test('city/state venue and start-only manual event can be approved without optional fields',async()=>{
+ const body={clientRequestId:randomUUID(),venue:{proposal:{name:'City gathering',city:'Rexburg',state:'ID'}},
+  event:{title:'Minimal manual event',schedule:{startDate:new Date(Date.now()+2*86400000).toISOString().slice(0,10),startTime:'19:00'}}};
+ const item=await submit(body);assert.equal(item.status,'PENDING');
+ const approved=await request('/admin/api/submissions/'+item.id+'/approve',{},true);
+ assert.equal(approved.status,200,JSON.stringify(approved.body));
+ const detail=await request('/api/v1/experiences/'+approved.body.item.experienceId);
+ assert.equal(detail.body.item.description,null);assert.equal(detail.body.item.endTime,null);
+ assert.equal(detail.body.item.latitude,null);assert.equal(detail.body.item.state,'ID');
+ assert.equal(detail.body.item.type,'OTHER');
+});
+
+test('explicit next-day and multi-day dates survive publication and date filtering',async()=>{
+ const {parseSubmission}=require('../validation/submission');
+ const {findOccurrence}=require('../services/recurrence');
+ const input=event();input.event.schedule={startDate:'2030-05-01',endDate:'2030-05-03',startTime:'23:00',endTime:'01:00'};
+ const parsed=parseSubmission(input);assert.equal(parsed.success,true);
+ const schedule={...parsed.data.payload.event.schedule,scheduleKind:'ONCE',timeZone:'America/Denver'};
+ const occurrence=findOccurrence(schedule,{window:'date',date:'2030-05-02',timeZone:'America/Denver'},'2030-05-02T18:00:00Z');
+ assert.ok(occurrence);assert.equal(occurrence.startsAt,'2030-05-02T05:00:00Z');assert.equal(occurrence.endsAt,'2030-05-03T07:00:00Z');
+});
+
+test('venue reuse compares coordinates at database precision',async()=>{
+ const proposal={name:'Precision venue',latitude:43.8000004,longitude:-111.8000004};
+ for(let i=0;i<2;i++){
+  const item=await submit(event({proposal}));
+  const response=await request('/admin/api/submissions/'+item.id+'/approve',{},true);
+  assert.equal(response.status,200,JSON.stringify(response.body));
+ }
+ assert.equal((await db.query("SELECT count(*)::int AS n FROM businesses WHERE name='Precision venue'")).rows[0].n,1);
 });

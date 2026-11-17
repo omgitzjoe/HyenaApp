@@ -3,8 +3,7 @@ function venueTimeZone(location) {
     if (!location || location.latitude == null || location.longitude == null ||
         !Number.isFinite(Number(location.latitude)) || !Number.isFinite(Number(location.longitude)) ||
         Math.abs(Number(location.latitude)) > 90 || Math.abs(Number(location.longitude)) > 180) {
-        const { ReviewError } = require('./publishExperience');
-        throw new ReviewError(400, 'VENUE_LOCATION_REQUIRED', 'The venue needs valid latitude and longitude before publishing.');
+        return 'America/Denver';
     }
     return lookup(Number(location.latitude), Number(location.longitude));
 }

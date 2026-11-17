@@ -15,18 +15,21 @@ let db, server, url;
 const ids={};
 const logger={warn(){},error(){}};
 async function addExperience(title,options={}) {
-    const id=randomUUID(), scheduleId=randomUUID();
-    await db.query(`INSERT INTO experiences (id,business_id,title,description,type,price_label,is_active)
-        VALUES ($1,$2,$3,$4,'EVENT',$5,$6)`,[id,options.businessId||ids.business,title,options.description||'Fixture',options.offer??null,options.active??true]);
-    await db.query(`INSERT INTO experience_schedules (id,experience_id,kind,start_date,end_date,start_time,end_time,ends_next_day,time_zone)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[scheduleId,id,options.kind||'ONCE',options.startDate||'2026-10-28',options.endDate===undefined?(options.startDate||'2026-10-28'):options.endDate,options.startTime||'17:00',options.endTime||'21:00',options.overnight||false,options.zone||'America/Denver']);
+    const id=randomUUID();
+    await db.query(`INSERT INTO experiences (id,business_id,title,description,type,is_active)
+        VALUES ($1,$2,$3,$4,'EVENT',$5)`,[id,options.businessId||ids.business,title,[options.description||'Fixture',options.offer].filter(Boolean).join(' '),options.active??true]);
+    const startDate=options.startDate||'2026-10-28';
+    const endDate=options.overnight ? require('@js-temporal/polyfill').Temporal.PlainDate.from(startDate).add({days:1}).toString() : options.endDate===undefined?startDate:options.endDate;
+    await db.query(`INSERT INTO experience_schedules (experience_id,kind,start_date,end_date,start_time,end_time,time_zone)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)`,[id,options.kind||'ONCE',startDate,endDate,options.startTime||'17:00',options.endTime||'21:00',options.zone||'America/Denver']);
     for(const categoryId of options.categories||[ids.food])await db.query('INSERT INTO experience_categories VALUES ($1,$2)',[id,categoryId]);
-    for(const day of options.weekdays||[])await db.query('INSERT INTO experience_schedule_days VALUES ($1,$2)',[scheduleId,day]);
+    for(const day of options.weekdays||[])await db.query('INSERT INTO experience_schedule_days(experience_id,iso_weekday) VALUES ($1,$2)',[id,day]);
     return id;
 }
 before(async()=>{
     db=new PGlite(); await db.waitReady;
     await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations/initial_schema.sql'),'utf8'));
+    for(const f of ['002_event_submissions.sql','004_event_reports.sql','005_venue_lookup.sql','006_lightweight_calendar.sql'])await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations',f),'utf8'));
     for(const k of ['area','inactiveArea','business','closedBusiness','inactiveAreaBusiness','food','music','unused'])ids[k]=randomUUID();
     await db.query("INSERT INTO businesses (id,name,address,city,is_active,latitude,longitude) VALUES ($1,'Joe''s Café','1 Test St','Test City',TRUE,43.8231,-111.7924),($2,'Closed Venue','2 Test St','Test City',FALSE,43.8231,-111.7924),($3,'Retired Venue','3 Test St','Test City',FALSE,43.8231,-111.7924)",[ids.business,ids.closedBusiness,ids.inactiveAreaBusiness]);
     await db.query("INSERT INTO categories (id,name,slug) VALUES ($1,'Food','food'),($2,'Music','music'),($3,'Unused','unused')",[ids.food,ids.music,ids.unused]);
@@ -35,9 +38,9 @@ before(async()=>{
     ids.valid=await addExperience('Zulu Dinner',{description:'Family evening',offer:'Free entry',categories:[ids.food,ids.music]});
     ids.weekly=await addExperience('Weekly Café',{kind:'WEEKLY',startDate:'2026-01-01',endDate:null,weekdays:[3,5],categories:[ids.music]});
     ids.percent=await addExperience('Save 50% _ Today');
-    await db.query('UPDATE experiences SET price_amount=$2, currency=$3 WHERE id=$1', [ids.valid, '0', 'USD']);
-    await db.query('UPDATE experiences SET price_amount=$2, currency=$3 WHERE id=$1', [ids.weekly, '10.50', 'USD']);
-    await db.query('UPDATE experiences SET price_amount=$2, currency=$3 WHERE id=$1', [ids.percent, '10.51', 'USD']);
+    await db.query('UPDATE experiences SET price_amount=$2 WHERE id=$1', [ids.valid, '0']);
+    await db.query('UPDATE experiences SET price_amount=$2 WHERE id=$1', [ids.weekly, '10.50']);
+    await db.query('UPDATE experiences SET price_amount=$2 WHERE id=$1', [ids.percent, '10.51']);
     await addExperience('Inactive Experience',{active:false});
     await addExperience('Closed Venue Event',{businessId:ids.closedBusiness});
     await addExperience('Inactive Area Event',{businessId:ids.inactiveAreaBusiness});
@@ -159,13 +162,7 @@ test('maximum price includes exact boundary and excludes higher amounts', async 
     assert.ok(r.body.items.every(x=>x.id!==ids.percent));
     assert.deepEqual((await get('?price=max&maxPrice=0&currency=USD')).body.items.map(x=>x.id),[ids.valid]);
 });
-test('maximum price never compares different currencies', async () => {
-    try {
-        await db.query('UPDATE experiences SET currency=$2 WHERE id=$1',[ids.percent,'EUR']);
-        assert.equal((await get('?price=max&maxPrice=100&currency=USD')).body.count,2);
-        assert.deepEqual((await get('?price=max&maxPrice=100&currency=EUR')).body.items.map(x=>x.id),[ids.percent]);
-    } finally { await db.query('UPDATE experiences SET currency=$2 WHERE id=$1',[ids.percent,'USD']); }
-});
+
 test('category, price, keyword, area and date combine before limit', async () => {
     const q=new URLSearchParams({window:'date',date:'2026-10-28',timeZone:'America/Denver',categoryId:ids.music,price:'max',maxPrice:'10.50',currency:'USD',q:'family',limit:'1'});
     const r=await get('?'+q);assert.equal(r.status,200);assert.deepEqual(r.body.items.map(x=>x.id),[ids.valid]);
@@ -182,7 +179,7 @@ test('price combines with proximity and changing filters restores results', asyn
     } finally { await db.query('UPDATE businesses SET latitude=43.8231, longitude=-111.7924 WHERE id=$1',[ids.business]); }
 });
 test('malformed price requests return structured 400 responses', async () => {
-    for(const query of ['?price=cheap','?price=max&maxPrice=-1&currency=USD','?price=max&maxPrice=10','?price=free&maxPrice=0']){
+    for(const query of ['?price=cheap','?price=max&maxPrice=-1&currency=USD','?price=max&maxPrice=10&currency=EUR','?price=free&maxPrice=0']){
         const r=await get(query);assert.equal(r.status,400);assert.ok(r.body.error.code);
     }
 });
@@ -190,8 +187,8 @@ test('malformed price requests return structured 400 responses', async () => {
 test('category endpoint returns selectable category IDs and names', async () => {
     const response=await fetch(url.replace('/experiences','/categories'));
     const body=await response.json();
-    assert.equal(response.status,200);assert.equal(body.count,3);
-    assert.deepEqual(body.items.map(x=>x.name),['Food','Music','Unused']);
+    assert.equal(response.status,200);assert.equal(body.count,4);
+    assert.deepEqual(body.items.map(x=>x.name),['Food','Music','Other','Unused']);
     const music=body.items.find(x=>x.name==='Music');
     assert.equal((await get('?categoryId='+music.id)).body.count,2);
 });

@@ -14,14 +14,14 @@ async function discoverExperiences(pool, query, now = new Date(), logger = conso
     // Deliberately no SQL LIMIT: recurrence must be evaluated before limiting.
     // This in-memory stage is intended for the curated prototype dataset.
     const result = await pool.query(`
-        SELECT e.id, e.title, e.description, b.latitude, b.longitude, b.name AS "businessName", b.city,
+        SELECT e.id, e.title, e.description, e.type, e.source_url AS "sourceUrl", b.latitude, b.longitude, b.name AS "businessName", b.city,
             COALESCE((SELECT json_agg(json_build_object('id',c.id,'name',c.name,'slug',c.slug) ORDER BY c.name,c.id) FROM experience_categories ec JOIN categories c ON c.id=ec.category_id WHERE ec.experience_id=e.id), '[]'::json) AS categories,
-            e.price_amount AS "priceAmount", e.currency, e.price_label AS "offer",
+            e.price_amount AS "priceAmount",
             s.all_day AS "allDay", s.kind AS "scheduleKind", s.start_date::text AS "startDate",
             s.end_date::text AS "endDate", s.start_time AS "startTime",
-            s.end_time AS "endTime", s.ends_next_day AS "endsNextDay", s.time_zone AS "timeZone",
+            s.end_time AS "endTime", s.time_zone AS "timeZone",
             ARRAY(SELECT sd.iso_weekday FROM experience_schedule_days sd
-                WHERE sd.schedule_id = s.id ORDER BY sd.iso_weekday) AS weekdays
+                WHERE sd.experience_id = s.experience_id ORDER BY sd.iso_weekday) AS weekdays
         FROM experiences e
         JOIN businesses b ON b.id = e.business_id
         JOIN experience_schedules s ON s.experience_id = e.id
@@ -32,11 +32,11 @@ async function discoverExperiences(pool, query, now = new Date(), logger = conso
             ))
             AND ($3::text = 'any'
                 OR ($3::text = 'free' AND e.price_amount = 0)
-                OR ($3::text = 'max' AND e.price_amount <= $4::numeric AND e.currency = $5::char(3)))
-            AND (e.title ILIKE $1 OR e.description ILIKE $1 OR b.name ILIKE $1 OR e.price_label ILIKE $1
+                OR ($3::text = 'max' AND e.price_amount <= $4::numeric))
+            AND (e.title ILIKE $1 OR e.description ILIKE $1 OR b.name ILIKE $1
                 OR EXISTS (SELECT 1 FROM experience_categories ec JOIN categories c ON c.id = ec.category_id
                     WHERE ec.experience_id = e.id AND c.name ILIKE $1))
-    `, [pattern, filters.categoryIds, filters.priceMode, filters.maxPrice, filters.currency]);
+    `, [pattern, filters.categoryIds, filters.priceMode, filters.maxPrice]);
     const rows = filters.proximity ? result.rows.filter(row => {
         if (row.latitude == null || row.longitude == null) return false;
         const radians = degrees => degrees * Math.PI / 180;
@@ -47,6 +47,7 @@ async function discoverExperiences(pool, query, now = new Date(), logger = conso
         row.distanceMiles = 3958.7613 * 2 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, a))));
         return row.distanceMiles <= radiusMiles;
     }) : result.rows;
+    for (const row of rows) row.timeZone ||= require('./venueLocation').venueTimeZone(row);
     return evaluateCandidates(rows, filters, evaluatedAt, id => logger.warn("Invalid discovery schedule:", id));
 }
 

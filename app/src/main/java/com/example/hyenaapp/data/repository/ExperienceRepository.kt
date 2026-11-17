@@ -25,31 +25,26 @@ object ExperienceRepository {
             categoryIds = filters.categoryIds.takeIf { it.isNotEmpty() }?.joinToString(","),
             price = filters.priceMode,
             maxPrice = filters.maxPrice.takeIf { filters.priceMode == "max" },
-            currency = "USD".takeIf { filters.priceMode == "max" },
             date = filters.date.takeIf { window == "date" },
             limit = limit
         ).items.map { dto ->
-            val offerLabel = dto.offer?.takeIf { it.isNotBlank() }
-                ?: dto.priceAmount?.let { amount ->
-                    "$amount ${dto.currency.orEmpty()}".trim()
-                }
-                ?: "Price not listed"
-
             Experience(
                 id = dto.id,
                 title = dto.title,
                 businessName = dto.businessName,
-                schedule = dto.nextOccurrence?.let { formatOccurrence(it, ZoneId.of(timeZone)) }
+                schedule = dto.nextOccurrence?.let { if (dto.allDay) "${dto.startDate}${dto.endDate?.takeIf { end -> end != dto.startDate }?.let { end -> "–$end" }.orEmpty()} · All day" else if (dto.endTime == null) formatStart(it.startsAt, ZoneId.of(timeZone)) else formatOccurrence(it, ZoneId.of(timeZone)) }
                     ?: "No dated occurrence available",
-                offer = offerLabel,
+                offer = dto.description.orEmpty(),
                 occurrenceStart = dto.nextOccurrence?.startsAt,
-                occurrenceEnd = dto.nextOccurrence?.endsAt,
+                occurrenceEnd = dto.nextOccurrence?.endsAt, hasEndTime = dto.endTime != null, allDay = dto.allDay,
                 distanceMiles = dto.distanceMiles, latitude = dto.latitude, longitude = dto.longitude,
-                categories = dto.categories, priceLabel = priceLabel(dto.priceAmount, dto.currency)
+                categories = dto.categories.ifEmpty { listOf(com.example.hyenaapp.domain.model.EventCategory("other", "Other", "other")) }, priceLabel = priceLabel(dto.priceAmount, "USD")
             )
         }
     }
 }
+
+internal fun formatStart(startsAt: String, zone: ZoneId): String = Instant.parse(startsAt).atZone(zone).format(DateTimeFormatter.ofPattern("EEE, MMM d · h:mm a", Locale.US))
 
 internal fun formatOccurrence(occurrence: OccurrenceDto, zone: ZoneId = ZoneId.systemDefault()): String {
     return formatInterval(occurrence.startsAt, occurrence.endsAt, zone)
@@ -71,13 +66,13 @@ internal fun formatInterval(startsAt: String, endsAt: String, zone: ZoneId): Str
 data class NearbyLocation(val latitude: Double, val longitude: Double)
 
 fun displaySchedule(experience: Experience, timeZone: String): String {
-    return if (experience.occurrenceStart != null && experience.occurrenceEnd != null) {
+    return if (experience.occurrenceStart != null && experience.occurrenceEnd != null && experience.hasEndTime && !experience.allDay) {
         formatInterval(experience.occurrenceStart, experience.occurrenceEnd, ZoneId.of(timeZone))
     } else experience.schedule
 }
 
 internal fun priceLabel(amount: String?, currency: String?): String {
-    val value = amount?.toBigDecimalOrNull() ?: return "Price unknown"
+    val value = amount?.toBigDecimalOrNull() ?: return ""
     if (value.signum() == 0) return "Free"
     val number = value.stripTrailingZeros().toPlainString()
     return if (currency == "USD") "$$number" else "$number ${currency.orEmpty()}".trim()

@@ -78,8 +78,8 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
         try {
             const pattern='%'+query.data.replace(/[\\%_]/g,'\\$&')+'%';
             const saved=await pool.query(
-                `SELECT id AS "businessId",name,address,city,latitude,longitude FROM businesses
-                 WHERE is_active AND latitude IS NOT NULL AND longitude IS NOT NULL
+                `SELECT id AS "businessId",name,address,city,state,latitude,longitude FROM businesses
+                 WHERE is_active
                  AND (name ILIKE $1 OR address ILIKE $1) ORDER BY name LIMIT 8`,[pattern]
             );
             const local=saved.rows.map(place=>({...place,label:[place.name,place.address,place.city].join(', ')}));
@@ -160,7 +160,7 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
             let cursor=null;
             if(parsed.data.before){const r=await pool.query('SELECT created_at::text AS created_at,id FROM event_submissions WHERE id=$1',[parsed.data.before]);if(!r.rows.length)return res.status(400).json({error:{code:'INVALID_CURSOR',message:'Reload the queue.'}});cursor=r.rows[0];}
             const result=await pool.query(`SELECT s.id,s.payload,s.status,s.published_experience_id AS "experienceId",s.created_at AS "createdAt",s.reviewed_at AS "reviewedAt",s.reviewed_by AS "reviewedBy",s.review_note AS "reviewNote",
-                CASE WHEN b.id IS NULL THEN NULL ELSE jsonb_build_object('id',b.id,'name',b.name,'address',b.address,'city',b.city,'latitude',b.latitude,'longitude',b.longitude,'isActive',b.is_active) END AS business
+                CASE WHEN b.id IS NULL THEN NULL ELSE jsonb_build_object('id',b.id,'name',b.name,'address',b.address,'city',b.city,'state',b.state,'latitude',b.latitude,'longitude',b.longitude,'isActive',b.is_active) END AS business
                 FROM event_submissions s LEFT JOIN businesses b ON b.id::text=s.payload#>>'{venue,businessId}'
                 WHERE s.status=$1 AND ($2::timestamptz IS NULL OR (s.created_at,s.id)<($2::timestamptz,$3::uuid))
                 ORDER BY s.created_at DESC,s.id DESC LIMIT 51`,[parsed.data.status,cursor?.created_at??null,cursor?.id??null]);
@@ -183,10 +183,7 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
                         options.businessId=options.venue.businessId;
                         delete options.venue;
                     }
-                    const valid=options.venue ? z.object({proposal:z.object({
-                        name:z.string().trim().min(1).max(200),address:z.string().trim().min(1).max(300),
-                        city:z.string().trim().min(1).max(100),latitude:z.number().min(-90).max(90),longitude:z.number().min(-180).max(180)
-                    })}).safeParse(options.venue) : {success:true};
+                    const valid=options.venue ? require('../validation/submission').proposalSchema.safeParse(options.venue.proposal) : {success:true};
                     if (!valid.success) throw new ReviewError(400,'VENUE_INVALID','Check the venue address and coordinates.');
                 }
                 res.json({item:await reviewSubmission(pool,id.data,status,req.admin.username,options,clock())});
