@@ -45,7 +45,7 @@ function findOccurrence(schedule, filters, now) {
         const start = startsAt.toZonedDateTimeISO(zone);
         if (Temporal.Instant.compare(endsAt, startsAt) <= 0) continue;
         if (Temporal.Instant.compare(startsAt, windowEnd) >= 0 || Temporal.Instant.compare(endsAt, windowStart) <= 0) continue;
-        if (filters.window !== "date" && Temporal.Instant.compare(endsAt, instant) <= 0) continue;
+        if (Temporal.Instant.compare(endsAt, instant) <= 0) continue;
         if (filters.window === "now" && Temporal.Instant.compare(startsAt, instant) > 0) continue;
         const occurrence = {
             startsAt: startsAt.toString(), endsAt: endsAt.toString(), timeZone: zone,
@@ -84,7 +84,7 @@ function evaluateCandidates(rows, filters, now, onInvalid = () => {}) {
                     }
                 }
             } catch (error) { if (!(error instanceof RangeError)) throw error; }
-            matches.push({ ...row, nextOccurrence: displayOccurrence });
+            if (displayOccurrence && displayOccurrence.status !== "EXPIRED") matches.push({ ...row, nextOccurrence: displayOccurrence });
             continue;
         }
         try {

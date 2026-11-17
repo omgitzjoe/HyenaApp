@@ -39,3 +39,20 @@ test('verified test cleanup removes only matching test IDs and their review reco
   assert.equal((await db.query('SELECT count(*)::int AS n FROM event_submissions')).rows[0].n,0);
  }finally{await db.close();}
 });
+
+test('admin migration retires exact existing duplicates and removes review notes',async()=>{
+ const db=new PGlite();
+ try{
+  await db.waitReady;for(const f of ['initial_schema.sql','002_event_submissions.sql','004_event_reports.sql','005_venue_lookup.sql','006_lightweight_calendar.sql'])await db.exec(read('migrations/'+f));
+  const venue=(await db.query("INSERT INTO businesses(name,city,state) VALUES('Library','Rexburg','ID') RETURNING id")).rows[0].id;
+  for(let i=0;i<3;i++){
+   const id=(await db.query("INSERT INTO experiences(business_id,title) VALUES($1,'Same community event') RETURNING id",[venue])).rows[0].id;
+   await db.query("INSERT INTO experience_schedules(experience_id,kind,start_date,start_time,end_time) VALUES($1,'ONCE','2030-05-01',$2,'21:00')",[id,i===2?'20:00':'19:00']);
+   await db.query("INSERT INTO event_submissions(id,client_request_id,payload,status,published_experience_id,reviewed_by,reviewed_at) VALUES(gen_random_uuid(),gen_random_uuid(),'{}','APPROVED',$1,'curator',CURRENT_TIMESTAMP)",[id]);
+  }
+  await db.exec(read('migrations/008_admin_management.sql'));
+  assert.equal((await db.query('SELECT count(*)::int AS n FROM experiences WHERE is_active')).rows[0].n,2);
+  assert.equal((await db.query('SELECT count(*)::int AS n FROM event_submissions WHERE duplicate_of IS NOT NULL')).rows[0].n,1);
+  assert.equal((await db.query("SELECT column_name FROM information_schema.columns WHERE table_name='event_submissions' AND column_name='review_note'")).rows.length,0);
+ }finally{await db.close();}
+});

@@ -44,13 +44,13 @@ test('weekly future start is not active today', () => assert.equal(occurrence({ 
 test('weekly final start date is inclusive', () => assert.ok(occurrence({ scheduleKind: 'WEEKLY', startDate: '2026-01-01', endDate: '2026-10-28', weekdays: [3] })));
 test('expired weekly date range is excluded', () => assert.equal(occurrence({ scheduleKind: 'WEEKLY', startDate: '2026-01-01', endDate: '2026-10-27', weekdays: [3] }), null));
 test('weekly overnight honors yesterday weekday and inclusive last start date', () => assert.ok(occurrence({ scheduleKind: 'WEEKLY', startDate: '2026-01-01', endDate: '2026-10-27', weekdays: [2], startTime: '23:00', endTime: '01:00', endsNextDay: true }, 'now', '2026-10-28T06:30:00Z')));
-test('selected past date includes expired occurrence with EXPIRED status', () => assert.equal(occurrence({ startDate: '2020-01-01', endDate: '2020-01-01' }, 'date', now, '2020-01-01').status, 'EXPIRED'));
+test('selected past dates exclude expired occurrences', () => assert.equal(occurrence({ startDate: '2020-01-01', endDate: '2020-01-01' }, 'date', now, '2020-01-01'), null));
 test('today is evaluated in venue time zone, not server date', () => {
     assert.ok(occurrence({ timeZone: 'Asia/Tokyo', startDate: '2026-10-29', endDate: '2026-10-29', startTime: '10:00', endTime: '12:00' }));
     assert.equal(occurrence({ startDate: '2026-10-29', endDate: '2026-10-29', startTime: '10:00', endTime: '12:00' }), null);
 });
 test('spring gap moves nonexistent local time forward by gap', () => {
-    const r = occurrence({ startDate: '2026-03-08', endDate: '2026-03-08', startTime: '02:15', endTime: '03:45' }, 'date', now, '2026-03-08');
+    const r = occurrence({ startDate: '2026-03-08', endDate: '2026-03-08', startTime: '02:15', endTime: '03:45' }, 'date', '2026-03-08T07:00:00Z', '2026-03-08');
     assert.equal(r.startsAt, '2026-03-08T09:15:00Z');
     assert.equal(r.endsAt, '2026-03-08T09:45:00Z');
 });
@@ -61,10 +61,10 @@ test('fall overlap chooses earlier start and later end', () => {
 });
 test('weekly local wall time survives offset transition', () => {
     const weekly = { scheduleKind: 'WEEKLY', startDate: '2026-01-01', endDate: null, weekdays: [7] };
-    assert.equal(occurrence(weekly, 'date', now, '2026-10-25').startsAt, '2026-10-25T23:00:00Z');
+    assert.equal(occurrence(weekly, 'date', '2026-10-25T00:00:00Z', '2026-10-25').startsAt, '2026-10-25T23:00:00Z');
     assert.equal(occurrence(weekly, 'date', now, '2026-11-01').startsAt, '2026-11-02T00:00:00Z');
 });
-test('nonpositive interval after gap resolution is omitted', () => assert.equal(occurrence({ startDate: '2026-03-08', endDate: '2026-03-08', startTime: '02:30', endTime: '03:15' }, 'date', now, '2026-03-08'), null));
+test('nonpositive interval after gap resolution is omitted', () => assert.equal(occurrence({ startDate: '2026-03-08', endDate: '2026-03-08', startTime: '02:30', endTime: '03:15' }, 'date', '2026-03-08T07:00:00Z', '2026-03-08'), null));
 test('full local-day interval chooses earliest matching occurrence once per listing', () => {
     const r = occurrence({ scheduleKind: 'WEEKLY', startDate: '2026-01-01', endDate: null, weekdays: [1,2,3,4,5,6,7], startTime: '08:00', endTime: '08:00', endsNextDay: true }, 'now', '2026-10-28T12:00:00Z');
     assert.equal(r.localDate, '2026-10-27');
@@ -78,9 +78,9 @@ test('filtering happens before result limit, with deterministic tie-breaks', () 
     const r = evaluateCandidates([...expired, {...base,id:'b'}, {...base,id:'a'}], filters('today',null,1),now);
     assert.equal(r.items[0].id,'a'); assert.equal(r.count,1); assert.equal(r.hasMore,true);
 });
-test('all dates explicitly retains expired schedules', () => {
+test('all dates excludes expired schedules', () => {
     const r = evaluateCandidates([{...base,startDate:'2020-01-01',endDate:'2020-01-01'}],filters('all'),now);
-    assert.equal(r.count,1); assert.equal(r.items[0].nextOccurrence.status,"EXPIRED");
+    assert.equal(r.count,0);
 });
 test('one invalid zone does not break the feed', () => {
     const warnings=[];

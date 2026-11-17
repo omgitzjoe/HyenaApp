@@ -210,7 +210,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
         promise.catch(() => { if (cache.get(source) === entry) cache.delete(source); });
         return promise;
     }
-    async function preview() {
+    async function preview({includeImported=false}={}) {
         const result = await Promise.allSettled(Object.keys(sources).map(load));
         const feeds = Object.keys(sources).map((source, i) => result[i].status === 'fulfilled'
             ? { source, ...result[i].value }
@@ -226,7 +226,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
             const count = feed.items.length;
             feed.items = feed.items.filter(item => {
                 const previous = imported.get(item.id);
-                return previous?.status !== 'REJECTED' && (!item.issue || item.issue === 'Missing or unsupported schedule' || previous);
+                return (includeImported ? previous?.status !== 'REJECTED' : !previous) && (!item.issue || item.issue === 'Missing or unsupported schedule' || previous);
             }).map(item => {
                 const previous = imported.get(item.id);
                 if (!previous) return item;
@@ -263,7 +263,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
         if (local.startsAt !== original.startsAt || local.endsAt !== original.endsAt) {
             throw new ReviewError(400, 'IMPORT_VENUE_TIME_ZONE', 'Choose a venue in the event’s local time zone.');
         }
-        return submitEvent(pool, parsed.data, clock());
+        return submitEvent(pool, parsed.data, clock(),{sourceKind:'FEED'});
     }
     function importEvent(feed, item, categoryIds) {
         return {
@@ -282,10 +282,10 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
         const payload = { venue: { proposal: proposal(item) }, event: importEvent(feed, item, []) };
         payload.event.schedule = payload.event.schedule || {};
         const result = await pool.query(
-            `INSERT INTO event_submissions (id, client_request_id, payload, status, reviewed_by, reviewed_at, review_note)
-             VALUES ($1, $2, $3::jsonb, 'REJECTED', $4, CURRENT_TIMESTAMP, 'Dismissed from event feed')
+            `INSERT INTO event_submissions (id, client_request_id, payload, status, reviewed_by, reviewed_at,source_kind)
+             VALUES ($1, $2, $3::jsonb, 'REJECTED', $4, CURRENT_TIMESTAMP, 'FEED')
              ON CONFLICT (client_request_id) DO UPDATE SET status='REJECTED', reviewed_by=EXCLUDED.reviewed_by,
-                 reviewed_at=EXCLUDED.reviewed_at, review_note=EXCLUDED.review_note
+                 reviewed_at=EXCLUDED.reviewed_at
              WHERE event_submissions.status='PENDING' RETURNING status`,
             [randomUUID(), id, JSON.stringify(payload), username]
         );
@@ -296,12 +296,12 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
         }
     }
     async function importEligible() {
-        const feeds = await preview();
+        const feeds = await preview({includeImported:true});
         const category = await pool.query(
             "SELECT id FROM categories WHERE slug='other' OR lower(name)='other' ORDER BY slug LIMIT 1"
         );
         const categoryId = category.rows[0]?.id;
-        const summary = { accepted:0, queued:0, needsReview:0, unavailable:feeds.filter(feed=>feed.error).length };
+        const summary = { accepted:0, queued:0, needsReview:0, duplicates:0, unavailable:feeds.filter(feed=>feed.error).length };
         const budget = {remaining:4};
         for (const feed of feeds) {
             for (const item of feed.items) {
@@ -311,7 +311,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
                     const payload={venue:{proposal:proposal(item)},event:importEvent(feed,item,categoryId?[categoryId]:[])};
                     payload.event.schedule=payload.event.schedule || {};
                     const added=await pool.query(
-                        `INSERT INTO event_submissions(id,client_request_id,payload) VALUES($1,$2,$3::jsonb)
+                        `INSERT INTO event_submissions(id,client_request_id,payload,source_kind) VALUES($1,$2,$3::jsonb,'FEED')
                          ON CONFLICT(client_request_id) DO NOTHING RETURNING id`,
                         [randomUUID(),item.id,JSON.stringify(payload)]
                     );
@@ -344,7 +344,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
                     // Preserve incomplete source information for admin correction rather than inventing coordinates.
                     const payload={venue:{proposal:proposal(item)},event:importEvent(feed,item,[categoryId])};
                     const added=await pool.query(
-                        `INSERT INTO event_submissions(id,client_request_id,payload) VALUES($1,$2,$3::jsonb)
+                        `INSERT INTO event_submissions(id,client_request_id,payload,source_kind) VALUES($1,$2,$3::jsonb,'FEED')
                          ON CONFLICT(client_request_id) DO NOTHING RETURNING id`,
                         [randomUUID(),item.id,JSON.stringify(payload)]
                     );
@@ -365,6 +365,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
                     const reviewed=await reviewSubmission(pool,submission.id,'APPROVED','Automatic feed import',
                         {automatic:true,venue},clock());
                     if (reviewed.status==='APPROVED') summary.accepted++;
+                    if (reviewed.duplicateOf) summary.duplicates++;
                 } catch (error) {
                     if (!(error instanceof ReviewError)) throw error;
                     summary.needsReview++;

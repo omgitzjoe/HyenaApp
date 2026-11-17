@@ -42,3 +42,22 @@ Render process is awake. Manually submitted events always enter Pending.
 
 Saved events, reminders, appearance, and search filters stay on the device. Upgrading
 preserves preference keys and real saved snapshots while removing known demonstration saves.
+
+## Admin listing management
+
+Pending and Approved entries support category, optional USD price (`0` = Free), venue,
+text and schedule edits. Approved edits update the existing event ID atomically. Revisions
+prevent saving an outdated editor, and the original request snapshot preserves submission
+retry identity after edits. Review notes have been removed; review ownership and Undo remain.
+
+The admin workspace prioritizes community submissions, supports event/venue search and source
+filters, and hides past/withdrawn listings unless the archive checkbox is enabled. Public
+All dates, historical date searches, and event detail endpoints exclude ended events. Ended
+records remain stored for feed identity and review history. Local saved snapshots expire on
+load; other device preferences are preserved.
+
+Feed preview shows only newly discovered IDs. Internal sync still revisits eligible Pending
+entries. Publication checks normalized event titles, occurrence start and venue identity;
+clear automatic duplicates are rejected with a link to the canonical event. Different start
+times and venues remain separate. Migration 008 also withdraws existing exact duplicates at
+the same venue and start, preserving their records and blacklist identities.

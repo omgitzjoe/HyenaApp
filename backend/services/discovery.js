@@ -29,7 +29,8 @@ async function discoverExperiences(pool, query, now = new Date(), logger = conso
             AND (cardinality($2::uuid[]) = 0 OR EXISTS (
                 SELECT 1 FROM experience_categories filter_category
                 WHERE filter_category.experience_id = e.id AND filter_category.category_id = ANY($2::uuid[])
-            ))
+            ) OR (NOT EXISTS(SELECT 1 FROM experience_categories unclassified WHERE unclassified.experience_id=e.id)
+                AND EXISTS(SELECT 1 FROM categories fallback WHERE fallback.id=ANY($2::uuid[]) AND fallback.slug='other')))
             AND ($3::text = 'any'
                 OR ($3::text = 'free' AND e.price_amount = 0)
                 OR ($3::text = 'max' AND e.price_amount <= $4::numeric))

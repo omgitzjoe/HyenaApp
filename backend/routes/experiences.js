@@ -99,8 +99,10 @@ function createExperienceRouter({ pool, clock = () => new Date(), logger = conso
                 });
             }
 
+            const item=result.rows[0];
+            if(require('../services/eventLifecycle').isPastSchedule(item,clock(),item))return res.status(404).json({error:{code:'EXPERIENCE_ENDED',message:'This event has ended.'}});
             res.json({
-                item: result.rows[0]
+                item
             });
         } catch (error) {
             console.error("Failed to retrieve experience:", error.message);

@@ -2,7 +2,7 @@
 
 /* Keep the header aligned with the review workspace. */
 .topbar {
-    padding-inline: max(18px, calc((100% - 1240px) / 2));
+    padding-inline: max(18px, calc((100% - 1480px) / 2));
 }
 .admin-tools {
     padding: 20px;
@@ -37,7 +37,7 @@
     margin-top: 12px;
 }
 @media (min-width: 851px) {
-    .topbar { padding-inline: max(40px, calc((100% - 1240px) / 2)); }
+    .topbar { padding-inline: max(40px, calc((100% - 1480px) / 2)); }
 }
 
 .review-actions fieldset { min-width:0; display:grid; gap:12px; padding:16px; border:1px solid var(--line); border-radius:8px; }
@@ -45,3 +45,19 @@ label:has(input[type="checkbox"]) { display:flex; align-items:center; gap:8px; }
 input[type="checkbox"] { width:auto; }
 fieldset button { text-align:left; max-width:100%; overflow-wrap:anywhere; }
 fieldset a { font-size:12px; color:var(--muted); }
+
+/* Listing-first workspace. Keep feed tools below everyday review work. */
+main{max-width:1560px}
+.workspace{grid-template-columns:minmax(330px, .85fr) minmax(0,1.4fr);align-items:start}
+.listing-filters{display:grid;grid-template-columns:1.3fr 1fr auto;gap:16px;align-items:end;margin-bottom:20px}
+.listing-filters .archive-toggle{padding-bottom:12px}
+.queue-group{position:sticky;top:0;padding:12px 20px;margin:0;background:#f5f7f1;border-bottom:1px solid var(--line);font-size:11px;z-index:1}
+.listing-time{display:block;font-size:13px;color:var(--green);margin-top:8px;font-weight:650}
+.tag.archived{background:#edf0f2;color:#52616a}
+.secondary-tools{margin-top:28px;display:grid;gap:16px}
+.secondary-tools .admin-tools{margin:0}
+.admin-tools>summary{font-size:17px;font-weight:650;cursor:pointer}
+.admin-tools[open]>summary{margin-bottom:16px}
+.category-options{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+@media(min-width:1100px){.workspace>.queue-panel{position:sticky;top:18px}#queue{max-height:75vh}}
+@media(max-width:850px){.workspace,.listing-filters{grid-template-columns:1fr}.workspace>.queue-panel{max-height:440px}.listing-filters .archive-toggle{padding-bottom:0}.tabs{flex-wrap:wrap}}

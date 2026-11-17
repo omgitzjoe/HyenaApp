@@ -18,7 +18,7 @@ const ids={};const now=()=>new Date();const quiet={error(){},warn(){}};
 const pass='test-only-long-password';const skip=(req,res,next)=>next();
 function event(venue={businessId:ids.business}){
  const date=new Date(Date.now()+2*86400000).toISOString().slice(0,10);
- return {clientRequestId:randomUUID(),venue,event:{title:'Community art evening',description:'A friendly workshop for neighbors.',type:'EVENT',priceAmount:'5.00',currency:'USD',categoryIds:[ids.category],schedule:{kind:'ONCE',startDate:date,endDate:date,startTime:'18:00',endTime:'20:00',endsNextDay:false,timeZone:'America/Denver',weekdays:[]}}};
+ return {clientRequestId:randomUUID(),venue,event:{title:'Community art evening '+randomUUID().slice(0,8),description:'A friendly workshop for neighbors.',type:'EVENT',priceAmount:'5.00',currency:'USD',categoryIds:[ids.category],schedule:{kind:'ONCE',startDate:date,endDate:date,startTime:'18:00',endTime:'20:00',endsNextDay:false,timeZone:'America/Denver',weekdays:[]}}};
 }
 async function request(route,body,auth=false,extra={}){
  const response=await fetch(base+route,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',Origin:base,...(auth?{Cookie:session.cookie,'X-CSRF-Token':session.csrf}:{}),...extra},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -27,7 +27,7 @@ async function request(route,body,auth=false,extra={}){
 async function submit(body=event()){const r=await request('/api/v1/submissions',body);assert.equal(r.status,201,JSON.stringify(r.body));return r.body.item;}
 before(async()=>{
  db=new PGlite();await db.waitReady;
- for(const f of ['initial_schema.sql','002_event_submissions.sql','004_event_reports.sql','005_venue_lookup.sql','006_lightweight_calendar.sql'])await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations',f),'utf8'));
+ for(const f of ['initial_schema.sql','002_event_submissions.sql','004_event_reports.sql','005_venue_lookup.sql','006_lightweight_calendar.sql','008_admin_management.sql'])await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations',f),'utf8'));
 
  ids.area=randomUUID();ids.business=randomUUID();ids.category=randomUUID();ids.closed=randomUUID();
  await db.query("INSERT INTO businesses(id,name,address,city,is_active,latitude,longitude) VALUES ($1,'Open Studio','1 Test St','Rexburg',TRUE,43.8231,-111.7924),($2,'Closed Studio','2 Test St','Rexburg',FALSE,43.8231,-111.7924)",[ids.business,ids.closed]);
@@ -142,9 +142,9 @@ test('approval requires CSRF and publishes a full experience exactly once',async
 test('concurrent approvals are idempotent under transaction serialization',async()=>{
  const item=await submit();const r=await Promise.all([reviewSubmission(pool,item.id,'APPROVED','reviewer'),reviewSubmission(pool,item.id,'APPROVED','reviewer')]);assert.equal(r[0].experienceId,r[1].experienceId);
 });
-test('rejection needs a reason, does not publish, and cannot later be approved',async()=>{
- const item=await submit();assert.equal((await request('/admin/api/submissions/'+item.id+'/reject',{note:' '},true)).status,400);
- const r=await request('/admin/api/submissions/'+item.id+'/reject',{note:'Venue details could not be verified.'},true);assert.equal(r.status,200);assert.equal(r.body.item.experienceId,null);
+test('rejection needs no note, does not publish, and cannot later be approved',async()=>{
+ const item=await submit();
+ const r=await request('/admin/api/submissions/'+item.id+'/reject',{},true);assert.equal(r.status,200);assert.equal(r.body.item.experienceId,null);
  assert.equal((await request('/admin/api/submissions/'+item.id+'/approve',{},true)).status,409);
 });
 test('approval creates a proposed venue with coordinates atomically',async()=>{
@@ -203,7 +203,7 @@ test('invalid coordinates and inactive venue at approval are rejected without pa
 });
 test('schema prevents approved or rejected rows without review ownership and required result',async()=>{
  const item=await submit();
- for(const sql of ["UPDATE event_submissions SET status='APPROVED' WHERE id=$1","UPDATE event_submissions SET status='REJECTED',reviewed_at=CURRENT_TIMESTAMP,review_note='No' WHERE id=$1"]){await assert.rejects(()=>db.query(sql,[item.id]),error=>error.code==='23514');}
+ for(const sql of ["UPDATE event_submissions SET status='APPROVED' WHERE id=$1","UPDATE event_submissions SET status='REJECTED',reviewed_at=CURRENT_TIMESTAMP WHERE id=$1"]){await assert.rejects(()=>db.query(sql,[item.id]),error=>error.code==='23514');}
 });
 test('administrator login rate limit and disabled/HTTP-production configurations fail closed',async()=>{
  const app=express();app.set('trust proxy',1);app.use(express.json());app.use('/admin',createAdminRouter({pool,env,logger:quiet,loginLimiter:requestLimit(1,60000)}));
@@ -333,7 +333,7 @@ test('admin feed preview is read-only and selected events are queued once with s
  assert.equal(row.payload.event.sourceUrl, 'https://www.rexburg.org/events?id=51');
  assert.equal(row.payload.event.priceAmount, null);
  const next = await request(route, undefined, true);
- assert.equal(next.body.feeds[1].items.find(item => item.id === candidate.id).queuedStatus, 'PENDING');
+ assert.ok(!next.body.feeds[1].items.some(item => item.id === candidate.id));
 });
 
 
@@ -395,7 +395,7 @@ test('undo feed rejection removes its blacklist entry and restores reviewable ca
  assert.equal(restored.status,'PENDING');
  assert.deepEqual(restored.payload.event.categoryIds,[]);
  const preview = (await request(route,undefined,true)).body;
- assert.ok(preview.feeds[1].items.some(item=>item.title==='Winter craft fair' && item.queuedStatus==='PENDING'));
+ assert.ok(!preview.feeds[1].items.some(item=>item.title==='Winter craft fair'));
 });
 
 test('manual submissions can omit description, type and categories and remain Pending with Other',async()=>{
@@ -479,4 +479,104 @@ test('venue reuse compares coordinates at database precision',async()=>{
   assert.equal(response.status,200,JSON.stringify(response.body));
  }
  assert.equal((await db.query("SELECT count(*)::int AS n FROM businesses WHERE name='Precision venue'")).rows[0].n,1);
+});
+
+test('admin edits Pending and Approved category, price, venue and time; published ID and original retry stay stable',async()=>{
+ const original=event();const item=await submit(original);
+ const pending=(await request('/admin/api/submissions?q='+encodeURIComponent(original.event.title),undefined,true)).body.items.find(x=>x.id===item.id);
+ const change={revision:pending.revision,event:{categoryIds:[],priceAmount:'0',schedule:{...original.event.schedule,startTime:'19:00',endTime:'21:00'}}};
+ assert.equal((await request('/admin/api/submissions/'+item.id+'/edit',change,true)).status,200);
+ assert.equal((await request('/admin/api/submissions/'+item.id+'/edit',change,true)).status,409);
+ const approved=await request('/admin/api/submissions/'+item.id+'/approve',{},true);assert.equal(approved.status,200,JSON.stringify(approved.body));
+ const id=approved.body.item.experienceId;
+ const row=(await db.query('SELECT revision FROM event_submissions WHERE id=$1',[item.id])).rows[0];
+ const edited=await request('/admin/api/submissions/'+item.id+'/edit',{
+  revision:row.revision,venue:{proposal:{name:'Edited venue',city:'Rexburg',state:'ID',latitude:43.82,longitude:-111.79}},
+  event:{categoryIds:[ids.category],priceAmount:'12.50',schedule:{...original.event.schedule,startTime:'20:00',endTime:'22:00'}}
+ },true);
+ assert.equal(edited.status,200,JSON.stringify(edited.body));assert.equal(edited.body.item.experienceId,id);
+ const publicEvent=(await request('/api/v1/experiences/'+id)).body.item;
+ assert.equal(publicEvent.priceAmount,'12.50');assert.equal(publicEvent.businessName,'Edited venue');
+ assert.deepEqual(publicEvent.categories.map(c=>c.id),[ids.category]);assert.equal(publicEvent.startTime,'20:00:00');
+ const retry=await request('/api/v1/submissions',original);assert.equal(retry.status,200);assert.equal(retry.body.item.id,item.id);
+ const revision=(await db.query('SELECT revision FROM event_submissions WHERE id=$1',[item.id])).rows[0].revision;
+ const invalid=await request('/admin/api/submissions/'+item.id+'/edit',{revision,event:{priceAmount:'-1'}},true);assert.equal(invalid.status,400);
+ assert.equal((await request('/api/v1/experiences/'+id)).body.item.priceAmount,'12.50');
+});
+
+test('admin priority lists community before feeds, filters source, and searches titles',async()=>{
+ const community=await submit(event());const feedBody=event();feedBody.event.title='Priority feed entry';
+ const {parseSubmission}=require('../validation/submission');const {submitEvent}=require('../services/submissions');
+ const feed=await submitEvent(pool,parseSubmission(feedBody).data,now(),{sourceKind:'FEED'});
+ const first=(await request('/admin/api/submissions',undefined,true)).body;
+ assert.equal(first.items[0].sourceKind,'USER');
+ const feeds=(await request('/admin/api/submissions?origin=FEED&q=Priority',undefined,true)).body.items;
+ assert.equal(feeds.length,1);assert.equal(feeds[0].id,feed.item.id);
+ assert.ok(!(await request('/admin/api/submissions?origin=FEED',undefined,true)).body.items.some(x=>x.id===community.id));
+});
+
+test('duplicate approvals are blocked across sources but different start times and venues survive',async()=>{
+ const firstBody=event();firstBody.event.title='One Community Concert! '+randomUUID().slice(0,8);
+ const first=await submit(firstBody);const accepted=await reviewSubmission(pool,first.id,'APPROVED','reviewer');
+ const duplicateBody=structuredClone(firstBody);duplicateBody.clientRequestId=randomUUID();duplicateBody.event.title=firstBody.event.title.toUpperCase().replace('!','');
+ const duplicate=await submit(duplicateBody);
+ await assert.rejects(()=>reviewSubmission(pool,duplicate.id,'APPROVED','reviewer'),e=>e.code==='DUPLICATE_EVENT');
+ const auto=await reviewSubmission(pool,duplicate.id,'APPROVED','importer',{automatic:true});
+ assert.equal(auto.status,'REJECTED');assert.equal(auto.duplicateOf,accepted.experienceId);
+ const later=structuredClone(firstBody);later.clientRequestId=randomUUID();later.event.schedule.startTime='21:00';later.event.schedule.endTime='22:00';
+ assert.equal((await request('/admin/api/submissions/'+(await submit(later)).id+'/approve',{},true)).status,200);
+ const elsewhere=structuredClone(firstBody);elsewhere.clientRequestId=randomUUID();elsewhere.venue={proposal:{name:'Separate venue',address:'999 Other Street',city:'Rexburg',latitude:43.82,longitude:-111.79}};
+ assert.equal((await request('/admin/api/submissions/'+(await submit(elsewhere)).id+'/approve',{},true)).status,200);
+});
+
+test('expired approved events disappear publicly and from the default admin list but remain in archive',async()=>{
+ const body=event();body.event.title='Lifecycle archive '+randomUUID().slice(0,8);
+ const item=await submit(body);const published=await reviewSubmission(pool,item.id,'APPROVED','reviewer');
+ const revision=(await db.query('SELECT revision FROM event_submissions WHERE id=$1',[item.id])).rows[0].revision;
+ const moved=await request('/admin/api/submissions/'+item.id+'/edit',{revision,event:{schedule:{...body.event.schedule,startDate:'2020-10-31',endDate:'2020-10-31'}}},true);
+ assert.equal(moved.status,200,JSON.stringify(moved.body));
+ assert.equal((await request('/api/v1/experiences/'+published.experienceId)).status,404);
+ assert.equal((await request('/admin/api/submissions?status=APPROVED&q=Lifecycle',undefined,true)).body.items.length,0);
+ const archive=(await request('/admin/api/submissions?status=APPROVED&includePast=true&q=Lifecycle',undefined,true)).body.items;
+ assert.equal(archive.length,1);assert.equal(archive[0].past,true);
+});
+
+test('community-first pagination crosses the feed boundary without skipping entries',async()=>{
+ const payload= require('../validation/submission').parseSubmission(event()).data.payload;
+ for(let i=0;i<54;i++){
+  const value=structuredClone(payload);value.event.title='Pagination group '+i;
+  await db.query("INSERT INTO event_submissions(id,client_request_id,payload,source_kind,created_at) VALUES($1,$2,$3::jsonb,$4,'2026-01-01T10:00:00.000001Z')",[randomUUID(),randomUUID(),JSON.stringify(value),i<51?'USER':'FEED']);
+ }
+ const page1=(await request('/admin/api/submissions?q=Pagination%20group',undefined,true)).body;
+ assert.equal(page1.items.length,50);assert.ok(page1.items.every(x=>x.sourceKind==='USER'));
+ const page2=(await request('/admin/api/submissions?q=Pagination%20group&before='+page1.nextCursor,undefined,true)).body;
+ assert.deepEqual(page2.items.map(x=>x.sourceKind),['USER','FEED','FEED','FEED']);
+ assert.equal(new Set([...page1.items,...page2.items].map(x=>x.id)).size,54);
+});
+
+test('admin editing requires authentication, CSRF and a current revision',async()=>{
+ const item=await submit();const path='/admin/api/submissions/'+item.id+'/edit';
+ assert.equal((await request(path,{revision:0,event:{priceAmount:'0'}})).status,401);
+ assert.equal((await request(path,{revision:0,event:{priceAmount:'0'}},false,{Cookie:session.cookie})).status,403);
+ assert.equal((await request(path,{event:{priceAmount:'0'}},true)).status,400);
+ const saved=await request(path,{revision:0,event:{priceAmount:'0'}},true);assert.equal(saved.status,200);
+ assert.equal((await request('/admin/api/submissions/'+item.id+'/approve',{revision:0},true)).status,409);
+});
+
+test('clearing optional categories keeps the listing discoverable under Other',async()=>{
+ const body=event();body.event.categoryIds=[];
+ const item=await submit(body);const approved=await reviewSubmission(pool,item.id,'APPROVED','reviewer');
+ const other=(await db.query("SELECT id FROM categories WHERE slug='other'")).rows[0].id;
+ const found=await request('/api/v1/experiences?latitude=43.8231&longitude=-111.7924&radiusMiles=100&window=all&categoryIds='+other+'&q='+encodeURIComponent(body.event.title));
+ assert.equal(found.status,200,JSON.stringify(found.body));assert.ok(found.body.items.some(e=>e.id===approved.experienceId));
+});
+
+test('a duplicate found through a venue alias does not leave an unused new venue',async()=>{
+ const original=event();original.event.title='Venue alias duplicate '+randomUUID().slice(0,8);
+ const accepted=await reviewSubmission(pool,(await submit(original)).id,'APPROVED','reviewer');
+ const count=(await db.query('SELECT count(*)::int AS n FROM businesses')).rows[0].n;
+ const alias=structuredClone(original);alias.clientRequestId=randomUUID();alias.venue={proposal:{name:'Alias of Open Studio',address:'1 Test St',city:'Rexburg',latitude:43.8231,longitude:-111.7924}};
+ const result=await reviewSubmission(pool,(await submit(alias)).id,'APPROVED','feed importer',{automatic:true});
+ assert.equal(result.duplicateOf,accepted.experienceId);
+ assert.equal((await db.query('SELECT count(*)::int AS n FROM businesses')).rows[0].n,count);
 });

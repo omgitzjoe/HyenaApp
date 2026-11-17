@@ -7,19 +7,24 @@
 <section id="login-view" class="login-card"><span class="eyebrow">CURATOR ACCESS</span><h1>A little review.<br>A better local experience.</h1><p>Review community submissions before they go public.</p><form id="login-form"><label>Administrator username<input id="login-username" autocomplete="username" maxlength="100" required></label><label>Password<input id="login-password" type="password" autocomplete="current-password" maxlength="256" required></label><button class="primary" id="login-button">Sign in</button></form><p class="muted">Administrator access is configured on the server. No curator API key is used in this browser.</p></section>
 <div id="notice" role="status" aria-live="polite"></div>
 <section id="review-view" hidden>
-<div class="page-heading"><div><span class="eyebrow">COMMUNITY → DISCOVERY</span><h1>Submission review</h1><p>Check the details. Keep the good stuff coming.</p></div><button id="refresh">Refresh queue</button></div>
-<section class="queue-panel admin-tools"><h2>Community corrections</h2><p>Investigate and correct event details through the curator tools before resolving. Reports never change listings automatically.</p><button id="reports-refresh">Refresh reports</button><div id="reports"></div></section>
-<section class="queue-panel admin-tools">
-<h2>Import events</h2>
-<p>Qualified feed events within 100 miles are accepted automatically. Entries needing location or schedule review appear in Pending. Open a candidate to resolve its venue or dismiss it.</p>
+<div class="page-heading"><div><span class="eyebrow">COMMUNITY → DISCOVERY</span><h1>Community calendar</h1><p>Review community submissions, edit listings, and keep upcoming events accurate.</p></div><button id="refresh">Refresh queue</button></div>
+<nav class="tabs" aria-label="Submission status"><button data-status="PENDING" class="active">Pending</button><button data-status="APPROVED">Approved</button><button data-status="REJECTED">Rejected</button></nav>
+<div class="listing-filters">
+<label>Find a listing<input id="listing-search" type="search" placeholder="Event or venue name" maxlength="200"></label>
+<label>Source<select id="listing-origin"><option value="all">All sources · Community first</option><option value="USER">Community submissions</option><option value="FEED">Feed imports</option></select></label>
+<label class="archive-toggle"><input id="include-past" type="checkbox">Include past and withdrawn events</label>
+</div>
+<div class="workspace"><aside class="queue-panel"><div class="queue-heading"><h2 id="queue-heading">Pending submissions</h2><span id="queue-count"></span></div><div id="queue" aria-live="polite"></div><button id="more" hidden>Load more</button></aside><article class="detail-panel" id="detail"><div class="empty-state"><span class="empty-mark">↗</span><h2>Pick a submission</h2><p>The event, venue, and schedule will appear here.</p></div></article></div>
+<div class="secondary-tools"><details class="queue-panel admin-tools"><summary>Community corrections</summary><p>Investigate and correct event details through the curator tools before resolving. Reports never change listings automatically.</p><button id="reports-refresh">Refresh reports</button><div id="reports"></div></details>
+<details class="queue-panel admin-tools"><summary>Discover new feed events</summary>
+<p>Qualified feed events within 100 miles are accepted automatically. Entries needing location or schedule review appear in Pending. Only newly discovered events appear here. Imported entries are managed in the listings above.</p>
 <div class="button-row">
 <button id="imports-sync" type="button" class="primary">Check feeds now</button>
 <button id="imports-preview" type="button">Preview feeds</button>
 </div>
 <div id="imports" aria-live="polite"></div>
-</section>
-<nav class="tabs" aria-label="Submission status"><button data-status="PENDING" class="active">Pending</button><button data-status="APPROVED">Approved</button><button data-status="REJECTED">Rejected</button></nav>
-<div class="workspace"><aside class="queue-panel"><div class="queue-heading"><h2 id="queue-heading">Pending submissions</h2><span id="queue-count"></span></div><div id="queue" aria-live="polite"></div><button id="more" hidden>Load more</button></aside><article class="detail-panel" id="detail"><div class="empty-state"><span class="empty-mark">↗</span><h2>Pick a submission</h2><p>The event, venue, and schedule will appear here.</p></div></article></div>
+</details>
+</div>
 </section>
 </main><footer>Hyena review desk · Events stay private until approved.</footer>
 </body></html>

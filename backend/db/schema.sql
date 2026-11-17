@@ -1,4 +1,4 @@
--- Current Hyena schema after migration 006. Reference only; use versioned migrations for upgrades.
+-- Current Hyena schema after migration 008. Reference only; use versioned migrations for upgrades.
 
 CREATE TABLE admin_sessions (
     token_hash character(64) NOT NULL,
@@ -87,21 +87,28 @@ CREATE TABLE event_submissions (
     created_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
     reviewed_at timestamp with time zone,
     reviewed_by text,
-    review_note text,
     auto_publish_blocked boolean NOT NULL DEFAULT false,
+    source_kind text NOT NULL DEFAULT 'USER'::text,
+    request_payload jsonb,
+    revision integer NOT NULL DEFAULT 0,
+    duplicate_of uuid,
     CONSTRAINT event_submissions_auto_publish_blocked_not_null NOT NULL auto_publish_blocked,
     CONSTRAINT event_submissions_client_request_id_key UNIQUE (client_request_id),
     CONSTRAINT event_submissions_client_request_id_not_null NOT NULL client_request_id,
     CONSTRAINT event_submissions_created_at_not_null NOT NULL created_at,
+    CONSTRAINT event_submissions_duplicate_of_fkey FOREIGN KEY (duplicate_of) REFERENCES experiences(id) ON DELETE SET NULL,
     CONSTRAINT event_submissions_id_not_null NOT NULL id,
     CONSTRAINT event_submissions_payload_check CHECK ((jsonb_typeof(payload) = 'object'::text)),
     CONSTRAINT event_submissions_payload_not_null NOT NULL payload,
     CONSTRAINT event_submissions_pkey PRIMARY KEY (id),
     CONSTRAINT event_submissions_published_experience_id_fkey FOREIGN KEY (published_experience_id) REFERENCES experiences(id) ON DELETE RESTRICT,
     CONSTRAINT event_submissions_published_experience_id_key UNIQUE (published_experience_id),
+    CONSTRAINT event_submissions_revision_not_null NOT NULL revision,
+    CONSTRAINT event_submissions_source_kind_check CHECK ((source_kind = ANY (ARRAY['USER'::text, 'FEED'::text]))),
+    CONSTRAINT event_submissions_source_kind_not_null NOT NULL source_kind,
     CONSTRAINT event_submissions_status_check CHECK ((status = ANY (ARRAY['PENDING'::text, 'APPROVED'::text, 'REJECTED'::text]))),
     CONSTRAINT event_submissions_status_not_null NOT NULL status,
-    CONSTRAINT valid_submission_review CHECK ((((status = 'PENDING'::text) AND (reviewed_at IS NULL) AND (reviewed_by IS NULL) AND (published_experience_id IS NULL) AND (review_note IS NULL)) OR ((status = 'APPROVED'::text) AND (reviewed_at IS NOT NULL) AND (reviewed_by IS NOT NULL) AND (btrim(reviewed_by) <> ''::text) AND (published_experience_id IS NOT NULL)) OR ((status = 'REJECTED'::text) AND (reviewed_at IS NOT NULL) AND (reviewed_by IS NOT NULL) AND (btrim(reviewed_by) <> ''::text) AND (published_experience_id IS NULL) AND (review_note IS NOT NULL) AND (btrim(review_note) <> ''::text))))
+    CONSTRAINT valid_submission_review CHECK ((((status = 'PENDING'::text) AND (reviewed_at IS NULL) AND (reviewed_by IS NULL) AND (published_experience_id IS NULL)) OR ((status = 'APPROVED'::text) AND (reviewed_at IS NOT NULL) AND (NULLIF(btrim(reviewed_by), ''::text) IS NOT NULL) AND (published_experience_id IS NOT NULL)) OR ((status = 'REJECTED'::text) AND (reviewed_at IS NOT NULL) AND (NULLIF(btrim(reviewed_by), ''::text) IS NOT NULL) AND (published_experience_id IS NULL))))
 );
 
 CREATE TABLE experience_categories (

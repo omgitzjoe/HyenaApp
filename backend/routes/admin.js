@@ -9,7 +9,6 @@ const {scheduleBounds}=require('../validation/submission');
 const {venueTimeZone}=require('../services/venueLocation');
 const {createVenueLookup}=require('../services/venueLookup');
 const {requestLimit}=require('../middleware/requestLimits');
-const {libraryFallback}=require('../services/localEventSources');
 const {createEventImports,sources}=require('../services/eventImports');
 const cookieName='hyena_admin';
 function sessionToken(req){const value=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='));const token=value?.slice(cookieName.length+1);return /^[a-f0-9]{64}$/.test(token||'')?token:null;}
@@ -19,18 +18,14 @@ function sameOrigin(req,res,next){
     if(!req.is('application/json'))return res.status(415).json({error:{code:'JSON_REQUIRED',message:'Send application/json.'}});
     next();
 }
-const approval=z.strictObject({businessId:z.uuid().optional(),latitude:z.number().min(-90).max(90).optional(),longitude:z.number().min(-180).max(180).optional(),venue:z.record(z.string(),z.unknown()).optional(),event:z.record(z.string(),z.unknown()).optional(),note:z.string().trim().max(2000).optional()})
+const approval=z.strictObject({businessId:z.uuid().optional(),latitude:z.number().min(-90).max(90).optional(),longitude:z.number().min(-180).max(180).optional(),venue:z.record(z.string(),z.unknown()).optional(),event:z.record(z.string(),z.unknown()).optional(),note:z.string().trim().max(2000).optional(),revision:z.number().int().min(0).optional()})
     .refine(x=>(x.latitude===undefined)===(x.longitude===undefined),{message:'Provide both latitude and longitude.'});
-const rejection=z.strictObject({note:z.string().trim().min(1).max(2000)});
+const rejection=z.strictObject({note:z.string().trim().max(2000).optional(),revision:z.number().int().min(0).optional()});
+const editing=approval.safeExtend({revision:z.number().int().min(0)});
 function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Date(),loginLimiter=requestLimit(5,15*60*1000),importFetcher=fetch,venueLookup=createVenueLookup({pool}),eventImports=createEventImports({pool,clock,fetcher:importFetcher,venueLookup})}){
     const router=express.Router();
-    const feedOrigins = new Set([
-        ...Object.values(sources).map(source => new URL(source.page).origin),
-        new URL(libraryFallback.page).origin
-    ]);
     function fromFeed(row) {
-        try { return feedOrigins.has(new URL(row.payload.event.sourceUrl).origin); }
-        catch { return false; }
+        return row.sourceKind==='FEED';
     }
     router.use((req,res,next)=>{
         res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
@@ -154,28 +149,43 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
         catch(error){logger.error('Admin logout failed:',error.message);res.status(500).json({error:{code:'LOGOUT_FAILED',message:'Unable to sign out. Retry.'}});}
     });
     router.get('/api/submissions',async(req,res)=>{
-        const parsed=z.strictObject({status:z.enum(['PENDING','APPROVED','REJECTED']).default('PENDING'),before:z.uuid().optional()}).safeParse(req.query);
-        if(!parsed.success)return res.status(400).json({error:{code:'INVALID_QUEUE_FILTER',message:'Choose a valid status and page cursor.'}});
+        const parsed=z.strictObject({status:z.enum(['PENDING','APPROVED','REJECTED']).default('PENDING'),before:z.uuid().optional(),q:z.string().trim().max(200).default(''),includePast:z.enum(['true','false']).default('false'),origin:z.enum(['all','USER','FEED']).default('all')}).safeParse(req.query);
+        if(!parsed.success)return res.status(400).json({error:{code:'INVALID_QUEUE_FILTER',message:'Check the status and listing filters.'}});
         try{
             let cursor=null;
-            if(parsed.data.before){const r=await pool.query('SELECT created_at::text AS created_at,id FROM event_submissions WHERE id=$1',[parsed.data.before]);if(!r.rows.length)return res.status(400).json({error:{code:'INVALID_CURSOR',message:'Reload the queue.'}});cursor=r.rows[0];}
-            const result=await pool.query(`SELECT s.id,s.payload,s.status,s.published_experience_id AS "experienceId",s.created_at AS "createdAt",s.reviewed_at AS "reviewedAt",s.reviewed_by AS "reviewedBy",s.review_note AS "reviewNote",
-                CASE WHEN b.id IS NULL THEN NULL ELSE jsonb_build_object('id',b.id,'name',b.name,'address',b.address,'city',b.city,'state',b.state,'latitude',b.latitude,'longitude',b.longitude,'isActive',b.is_active) END AS business
-                FROM event_submissions s LEFT JOIN businesses b ON b.id::text=s.payload#>>'{venue,businessId}'
-                WHERE s.status=$1 AND ($2::timestamptz IS NULL OR (s.created_at,s.id)<($2::timestamptz,$3::uuid))
-                ORDER BY s.created_at DESC,s.id DESC LIMIT 51`,[parsed.data.status,cursor?.created_at??null,cursor?.id??null]);
-            const items=result.rows.slice(0,50).map(row=>{
-                try { const location=row.payload.venue.proposal||row.business; return {...row,fromFeed:fromFeed(row),occurrence:scheduleBounds({...row.payload.event.schedule,timeZone:venueTimeZone(location)})}; }
-                catch { return {...row,fromFeed:fromFeed(row),occurrence:null}; }
-            });res.json({items,nextCursor:result.rows.length>50?items[items.length-1].id:null});
-        }catch(error){logger.error('Queue failed:',error.message);res.status(500).json({error:{code:'QUEUE_UNAVAILABLE',message:'Unable to load submissions. Check that migration 002 is applied.'}});}
+            if(parsed.data.before){const found=await pool.query('SELECT created_at::text AS created_at,id,source_kind FROM event_submissions WHERE id=$1',[parsed.data.before]);cursor=found.rows[0];if(!cursor)return res.status(400).json({error:{message:'Reload the queue.'}});}
+            const pattern='%'+parsed.data.q.replace(/[\\%_]/g,'\\$&')+'%';
+            const result=await pool.query(`SELECT s.id,s.payload,s.status,s.source_kind AS "sourceKind",s.revision,s.duplicate_of AS "duplicateOf",s.published_experience_id AS "experienceId",s.created_at AS "createdAt",s.reviewed_at AS "reviewedAt",s.reviewed_by AS "reviewedBy",
+                CASE WHEN b.id IS NULL THEN NULL ELSE jsonb_build_object('id',b.id,'name',b.name,'address',b.address,'city',b.city,'state',b.state,'latitude',b.latitude,'longitude',b.longitude,'isActive',b.is_active) END AS business,
+                COALESCE(e.is_active,TRUE) AS "listingActive"
+                FROM event_submissions s LEFT JOIN experiences e ON e.id=s.published_experience_id
+                LEFT JOIN businesses b ON b.id::text=COALESCE(e.business_id::text,s.payload#>>'{venue,businessId}')
+                WHERE s.status=$1 AND ($4='all' OR s.source_kind=$4)
+                AND (s.payload#>>'{event,title}' ILIKE $5 OR COALESCE(b.name,s.payload#>>'{venue,proposal,name}') ILIKE $5)
+                AND ($2::timestamptz IS NULL OR
+                    CASE WHEN s.source_kind='USER' THEN 0 ELSE 1 END > $6::int OR
+                    (CASE WHEN s.source_kind='USER' THEN 0 ELSE 1 END = $6::int AND (s.created_at,s.id)<($2::timestamptz,$3::uuid)))
+                ORDER BY CASE WHEN s.source_kind='USER' THEN 0 ELSE 1 END,s.created_at DESC,s.id DESC`,
+                [parsed.data.status,cursor?.created_at??null,cursor?.id??null,parsed.data.origin,pattern,cursor?.source_kind==='FEED'?1:0]);
+            const now=clock();
+            const candidates=result.rows.map(row=>{
+                const location=row.payload.venue.proposal||row.business;
+                const past=require('../services/eventLifecycle').isPastSchedule(row.payload.event.schedule || {},now,location);
+                let occurrence=null;
+                try{occurrence=scheduleBounds({...row.payload.event.schedule,timeZone:row.payload.event.schedule?.timeZone || venueTimeZone(location)});}catch{}
+                return {...row,fromFeed:fromFeed(row),past,occurrence};
+            }).filter(row=>parsed.data.includePast==='true' || (!row.past && row.listingActive));
+            const items=candidates.slice(0,50);
+            res.json({items,nextCursor:candidates.length>50?items.at(-1).id:null});
+        }catch(error){logger.error('Queue failed:',error.message);res.status(500).json({error:{code:'QUEUE_UNAVAILABLE',message:'Unable to load submissions.'}});}
     });
-    for(const [route,status,schema] of [['approve','APPROVED',approval],['reject','REJECTED',rejection],['undo','PENDING',z.strictObject({})]]){
+    for(const [route,status,schema] of [['edit','EDIT',editing],['approve','APPROVED',approval],['reject','REJECTED',rejection],['undo','PENDING',z.strictObject({revision:z.number().int().min(0).optional()})]]){
         router.post('/api/submissions/:id/'+route,async(req,res)=>{
             const id=z.uuid().safeParse(req.params.id),body=schema.safeParse(req.body);
-            if(!id.success||!body.success)return res.status(400).json({error:{code:'INVALID_REVIEW',message:'Check the review note, venue ID, and coordinates.'}});
+            if(!id.success||!body.success)return res.status(400).json({error:{code:'INVALID_REVIEW',message:'Check the event details and venue.'}});
             try{
                 const options=body.data;
+                delete options.note;
                 if (options.venue) {
                     options.venue=await venueLookup.venue(options.venue);
                     if (options.venue.businessId) {

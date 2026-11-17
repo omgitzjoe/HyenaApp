@@ -11,14 +11,14 @@ async function validateReferences(db,payload) {
     if(c.rows.length!==payload.event.categoryIds.length) throw new ReviewError(400,'INVALID_CATEGORIES','Choose existing categories.');
 }
 async function existingReceipt(pool,key,payload) {
-    const result=await pool.query(`SELECT id,status,created_at AS "createdAt",(payload #- '{event,schedule,timeZone}')=($2::jsonb #- '{event,schedule,timeZone}') AS matches
+    const result=await pool.query(`SELECT id,status,created_at AS "createdAt",(COALESCE(request_payload,payload) #- '{event,schedule,timeZone}')=($2::jsonb #- '{event,schedule,timeZone}') AS matches
         FROM event_submissions WHERE client_request_id=$1`,[key,JSON.stringify(payload)]);
     if(!result.rows.length) return null;
     const {matches,...item}=result.rows[0];
     if(!matches) throw new ReviewError(409,'REQUEST_REUSED','This request ID was already used for different event details.');
     return {item,created:false};
 }
-async function submitEvent(pool,data,now) {
+async function submitEvent(pool,data,now,{sourceKind='USER'}={}) {
     if (data.payload.event.categoryIds.includes('e9d8a249-4259-4b2f-93dc-d75876f293da')) {
         const category=await pool.query("SELECT id FROM categories WHERE slug='other' OR lower(name)='other' ORDER BY slug LIMIT 1");
         if (category.rows.length) data.payload.event.categoryIds=[...new Set(data.payload.event.categoryIds.map(id=>id==='e9d8a249-4259-4b2f-93dc-d75876f293da'?category.rows[0].id:id))];
@@ -30,8 +30,8 @@ async function submitEvent(pool,data,now) {
     if(previous) return previous;
     ensureUnexpired(normalized,now);
     await validateReferences(pool,data.payload);
-    const result=await pool.query(`INSERT INTO event_submissions(id,client_request_id,payload) VALUES ($1,$2,$3::jsonb)
-        ON CONFLICT(client_request_id) DO NOTHING RETURNING id,status,created_at AS "createdAt"`,[randomUUID(),data.clientRequestId,JSON.stringify(data.payload)]);
+    const result=await pool.query(`INSERT INTO event_submissions(id,client_request_id,payload,request_payload,source_kind) VALUES ($1,$2,$3::jsonb,$3::jsonb,$4)
+        ON CONFLICT(client_request_id) DO NOTHING RETURNING id,status,created_at AS "createdAt"`,[randomUUID(),data.clientRequestId,JSON.stringify(data.payload),sourceKind]);
     return result.rows.length?{item:result.rows[0],created:true}:existingReceipt(pool,data.clientRequestId,data.payload);
 }
 async function reviewSubmission(pool,id,action,username,options={},now=new Date()) {
@@ -41,6 +41,9 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
         const result=await client.query('SELECT * FROM event_submissions WHERE id=$1 FOR UPDATE',[id]);
         if(!result.rows.length) throw new ReviewError(404,'SUBMISSION_NOT_FOUND','Submission not found.');
         const row=result.rows[0];
+        if(options.revision!==undefined && options.revision!==row.revision)throw new ReviewError(409,'EDIT_CONFLICT','This entry changed. Refresh before saving again.');
+        const editing=action==='EDIT';
+        if(editing && !['PENDING','APPROVED'].includes(row.status))throw new ReviewError(409,'EDIT_NOT_ALLOWED','Restore this entry to Pending before editing.');
         if (action === 'PENDING') {
             if (row.status === 'PENDING') {
                 await client.query('COMMIT');
@@ -59,7 +62,7 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
             }
             await client.query(
                 `UPDATE event_submissions SET status='PENDING', payload=$2::jsonb,
-                 published_experience_id=NULL, reviewed_by=NULL, reviewed_at=NULL, review_note=NULL, auto_publish_blocked=TRUE WHERE id=$1`,
+                 published_experience_id=NULL, reviewed_by=NULL, reviewed_at=NULL, auto_publish_blocked=TRUE, revision=revision+1,duplicate_of=NULL WHERE id=$1`,
                 [id, JSON.stringify(payload)]
             );
             await client.query('COMMIT');
@@ -71,21 +74,22 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
             started = false;
             return {id,status:row.status,experienceId:row.published_experience_id};
         }
-        if(row.status!=='PENDING') {
+        if(row.status!=='PENDING' && !editing) {
             if(row.status===action) {await client.query('COMMIT');started=false;return {id:row.id,status:row.status,experienceId:row.published_experience_id};}
             throw new ReviewError(409,'ALREADY_REVIEWED','This submission has already been reviewed. Reload the queue.');
         }
         if (options.venue) row.payload = {...row.payload,venue:options.venue};
-        let experienceId=null;
-        if(action==='APPROVED') {
+        let experienceId=editing?row.published_experience_id:null;
+        if(action==='APPROVED' || editing) {
             const updated={...row.payload.event,...options.event};
             const valid=parseSubmission({
                 clientRequestId:row.client_request_id,
                 venue:{businessId:row.payload.venue.businessId || '00000000-0000-4000-8000-000000000000'},
                 event:updated
             });
-            if (!valid.success) throw new ReviewError(400,'EVENT_DETAILS_REQUIRED','Check the title, date and start time, or choose All Day.');
+            if (!valid.success) throw new ReviewError(400,'EVENT_DETAILS_REQUIRED',valid.error.issues.slice(0,3).map(issue=>issue.path.join('.')+': '+issue.message).join(' '));
             row.payload={...row.payload,event:valid.data.payload.event};
+            let createdBusinessId=null;
             let businessId=options.businessId||row.payload.venue.businessId;
             if(!businessId) {
                 const validation=require('../validation/submission').proposalSchema.safeParse({
@@ -104,6 +108,7 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
                 businessId=existingVenue.rows[0]?.id;
                 if (!businessId) {
                 businessId=randomUUID();
+                createdBusinessId=businessId;
                 await client.query(`INSERT INTO businesses(id,name,address,city,state,postal_code,latitude,longitude)
                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,[businessId,proposed.name,proposed.address,proposed.city,proposed.state,proposed.postalCode,options.latitude??proposed.latitude,options.longitude??proposed.longitude]);
                 }
@@ -116,13 +121,32 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
                 await client.query('UPDATE experience_schedules SET time_zone=$2 FROM experiences e WHERE e.id=experience_schedules.experience_id AND e.business_id=$1',[businessId,zone]);
             }
             const event={...row.payload.event,schedule:{...row.payload.event.schedule,timeZone:row.payload.event.schedule.timeZone || venueTimeZone(location)}};
-            ensureUnexpired(event,now);
-            const published=await publishExperience(client,{...event,businessId});experienceId=published.id;
+            if(!editing)ensureUnexpired(event,now);
+            row.payload={venue:{businessId},event};
+            await validateReferences(client,row.payload);
+            if(!editing || row.status==='APPROVED') {
+                const published=await publishExperience(client,{...event,businessId},editing?experienceId:null);
+                if(published.duplicate) {
+                    if(!options.automatic)throw new ReviewError(409,'DUPLICATE_EVENT','An event with this name, start time and venue is already published. Edit the existing listing instead.');
+                    if(createdBusinessId){
+                        const canonical=await client.query('SELECT business_id FROM experiences WHERE id=$1',[published.id]);
+                        row.payload.venue={businessId:canonical.rows[0].business_id};
+                        await client.query('DELETE FROM businesses WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM experiences WHERE business_id=$1)',[createdBusinessId]);
+                    }
+                    await client.query(`UPDATE event_submissions SET status='REJECTED',published_experience_id=NULL,duplicate_of=$2,reviewed_by=$3,reviewed_at=CURRENT_TIMESTAMP,payload=$4::jsonb,revision=revision+1 WHERE id=$1`,[id,published.id,username,JSON.stringify(row.payload)]);
+                    await client.query('COMMIT');started=false;
+                    return {id,status:'REJECTED',experienceId:null,duplicateOf:published.id};
+                }
+                experienceId=published.id;
+            }
         }
-        await client.query(`UPDATE event_submissions SET status=$2,published_experience_id=$3,reviewed_by=$4,
-            reviewed_at=CURRENT_TIMESTAMP,review_note=$5,payload=$6::jsonb WHERE id=$1`,[id,action,experienceId,username,options.note||null,JSON.stringify(row.payload)]);
+        const status=editing?row.status:action;
+        await client.query(`UPDATE event_submissions SET status=$2,published_experience_id=$3,
+            reviewed_by=$4,reviewed_at=$5,payload=$6::jsonb,revision=revision+1,
+            auto_publish_blocked=auto_publish_blocked OR $7,duplicate_of=NULL WHERE id=$1`,
+            [id,status,experienceId,status==='PENDING'?null:username,status==='PENDING'?null:now,JSON.stringify(row.payload),editing]);
         await client.query('COMMIT');started=false;
-        return {id,status:action,experienceId};
+        return {id,status,experienceId};
     } catch(error) {
         if(started){try{await client.query('ROLLBACK');}catch(rollbackError){releaseError=rollbackError;}}
         throw error;

@@ -18,7 +18,7 @@ class SavedExperienceStore(context: Context) {
 
     suspend fun load(): List<Experience> = withContext(Dispatchers.IO) {
         val previous = SavedExperienceCodec.decode(preferences.getString("items", null))
-        val retained = previous.filterNot { it.id in retiredDemoIds }
+        val retained = previous.filterNot { it.id in retiredDemoIds || it.occurrenceEnd?.let { end -> !Instant.parse(end).isAfter(Instant.now()) } == true }
         if (retained.size != previous.size && !preferences.edit().putString("items", SavedExperienceCodec.encode(retained)).commit()) {
             throw IOException("Unable to clean retired demonstration saves")
         }

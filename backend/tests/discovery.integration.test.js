@@ -86,17 +86,17 @@ test('unknown and inactive areas are rejected',async()=>{
     for(const id of [randomUUID(),ids.inactiveArea]){const r=await get(`?areaId=${id}`);assert.equal(r.status,400);assert.equal(r.body.error.code,'AREAS_REMOVED');}
 });
 test('unknown categories are rejected',async()=>assert.equal((await get(`?categoryId=${randomUUID()}`)).status,400));
-test('window all exposes expired listings but never inactive parents',async()=>{
-    const r=await get('?window=all&limit=100');assert.equal(r.body.count,29);
-    assert.ok(r.body.items.some(x=>x.title.startsWith('A expired')));
+test('window all excludes expired listings and inactive parents',async()=>{
+    const r=await get('?window=all&limit=100');assert.equal(r.body.count,3);
+    assert.ok(!r.body.items.some(x=>x.title.startsWith('A expired')));
     assert.ok(r.body.items.every(x=>!['Inactive Experience','Closed Venue Event','Inactive Area Event'].includes(x.title)));
 });
 test('limits are applied to matched experiences, not joined category rows',async()=>{
     const r=await get('?limit=1');assert.equal(r.body.count,1);assert.equal(r.body.hasMore,true);
     assert.equal((await get('?q=Zulu')).body.count,1);
 });
-test('selected historical date returns expired occurrences',async()=>{
-    const r=await get('?window=date&date=2020-01-01&limit=100');assert.equal(r.body.count,25);assert.ok(r.body.items.every(x=>x.nextOccurrence.status==='EXPIRED'));
+test('selected historical date no longer exposes expired occurrences',async()=>{
+    const r=await get('?window=date&date=2020-01-01&limit=100');assert.equal(r.body.count,0);
 });
 test('now and tonight HTTP windows differ',async()=>{
     assert.equal((await get('?window=now')).body.count,0);
@@ -153,7 +153,7 @@ test('Free uses numeric zero and excludes unknown prices', async () => {
     const r = await get('?window=all&price=free');
     assert.equal(r.status,200); assert.deepEqual(r.body.items.map(x=>x.id),[ids.valid]);
     // Old fixtures without numeric prices are retained by Any price.
-    assert.equal((await get('?window=all&price=any&limit=100')).body.count,29);
+    assert.equal((await get('?window=all&price=any&limit=100')).body.count,3);
 });
 test('maximum price includes exact boundary and excludes higher amounts', async () => {
     const r = await get('?price=max&maxPrice=10.50&currency=USD');
