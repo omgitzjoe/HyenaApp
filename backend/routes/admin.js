@@ -7,6 +7,7 @@ const {reviewSubmission}=require('../services/submissions');
 const {ReviewError}=require('../services/publishExperience');
 const {scheduleBounds}=require('../validation/submission');
 const {venueTimeZone}=require('../services/venueLocation');
+const {createVenueLookup}=require('../services/venueLookup');
 const {requestLimit}=require('../middleware/requestLimits');
 const {libraryFallback}=require('../services/localEventSources');
 const {createEventImports,sources}=require('../services/eventImports');
@@ -18,10 +19,10 @@ function sameOrigin(req,res,next){
     if(!req.is('application/json'))return res.status(415).json({error:{code:'JSON_REQUIRED',message:'Send application/json.'}});
     next();
 }
-const approval=z.strictObject({businessId:z.uuid().optional(),latitude:z.number().min(-90).max(90).optional(),longitude:z.number().min(-180).max(180).optional(),note:z.string().trim().max(2000).optional()})
+const approval=z.strictObject({businessId:z.uuid().optional(),latitude:z.number().min(-90).max(90).optional(),longitude:z.number().min(-180).max(180).optional(),venue:z.record(z.string(),z.unknown()).optional(),event:z.record(z.string(),z.unknown()).optional(),note:z.string().trim().max(2000).optional()})
     .refine(x=>(x.latitude===undefined)===(x.longitude===undefined),{message:'Provide both latitude and longitude.'});
 const rejection=z.strictObject({note:z.string().trim().min(1).max(2000)});
-function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Date(),loginLimiter=requestLimit(5,15*60*1000),importFetcher=fetch,eventImports=createEventImports({pool,clock,fetcher:importFetcher})}){
+function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Date(),loginLimiter=requestLimit(5,15*60*1000),importFetcher=fetch,venueLookup=createVenueLookup({pool}),eventImports=createEventImports({pool,clock,fetcher:importFetcher,venueLookup})}){
     const router=express.Router();
     const feedOrigins = new Set([
         ...Object.values(sources).map(source => new URL(source.page).origin),
@@ -71,6 +72,26 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
             next();
         }catch(error){logger.error('Admin session failed:',error.message);res.status(500).json({error:{code:'SESSION_UNAVAILABLE',message:'Unable to verify administrator session.'}});}
     });
+    router.get('/api/venue-search', requestLimit(20,60*1000), async (req,res) => {
+        const query=z.string().trim().min(3).max(250).safeParse(req.query.q);
+        if (!query.success) return res.status(400).json({error:{message:'Type at least three characters.'}});
+        try {
+            const pattern='%'+query.data.replace(/[\\%_]/g,'\\$&')+'%';
+            const saved=await pool.query(
+                `SELECT id AS "businessId",name,address,city,latitude,longitude FROM businesses
+                 WHERE is_active AND latitude IS NOT NULL AND longitude IS NOT NULL
+                 AND (name ILIKE $1 OR address ILIKE $1) ORDER BY name LIMIT 8`,[pattern]
+            );
+            const local=saved.rows.map(place=>({...place,label:[place.name,place.address,place.city].join(', ')}));
+            let external=[];
+            try { external=await venueLookup.search(query.data); }
+            catch(error) { if(!local.length) throw error; }
+            res.json({items:[...local,...external]});
+        }
+        catch(error) {
+            res.status(error instanceof ReviewError ? error.status : 503).json({error:{message:error instanceof ReviewError ? error.message : 'Venue search is temporarily unavailable.'}});
+        }
+    });
     const imports = eventImports;
     router.get('/api/event-imports', async (req, res) => {
         try { res.json({ feeds: await imports.preview() }); }
@@ -100,12 +121,17 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
     });
     router.post('/api/event-imports', async (req, res) => {
         const parsed = z.strictObject({
-            source: z.enum(Object.keys(sources)), id: z.uuid(), categoryId: z.uuid(),
+            source: z.enum(Object.keys(sources)), id: z.uuid(), categoryId: z.uuid().optional(),
             venue: z.record(z.string(), z.unknown())
         }).safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ error: { message: 'Choose a feed event, category, and venue.' } });
         try {
-            const result = await imports.queue(parsed.data);
+            const input=parsed.data;
+            if (!input.categoryId) {
+                const category=await pool.query("SELECT id FROM categories WHERE slug='other' OR lower(name)='other' ORDER BY slug LIMIT 1");
+                input.categoryId=category.rows[0]?.id;
+            }
+            const result = await imports.queue(input);
             res.status(result.created ? 201 : 200).json(result);
         } catch (error) {
             if (error instanceof ReviewError) return res.status(error.status).json({ error: { code: error.code, message: error.message } });
@@ -148,7 +174,23 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
         router.post('/api/submissions/:id/'+route,async(req,res)=>{
             const id=z.uuid().safeParse(req.params.id),body=schema.safeParse(req.body);
             if(!id.success||!body.success)return res.status(400).json({error:{code:'INVALID_REVIEW',message:'Check the review note, venue ID, and coordinates.'}});
-            try{res.json({item:await reviewSubmission(pool,id.data,status,req.admin.username,body.data,clock())});}
+            try{
+                const options=body.data;
+                if (options.venue) {
+                    options.venue=await venueLookup.venue(options.venue);
+                    if (options.venue.businessId) {
+                        if (!z.uuid().safeParse(options.venue.businessId).success) throw new ReviewError(400,'VENUE_INVALID','Choose a valid venue.');
+                        options.businessId=options.venue.businessId;
+                        delete options.venue;
+                    }
+                    const valid=options.venue ? z.object({proposal:z.object({
+                        name:z.string().trim().min(1).max(200),address:z.string().trim().min(1).max(300),
+                        city:z.string().trim().min(1).max(100),latitude:z.number().min(-90).max(90),longitude:z.number().min(-180).max(180)
+                    })}).safeParse(options.venue) : {success:true};
+                    if (!valid.success) throw new ReviewError(400,'VENUE_INVALID','Check the venue address and coordinates.');
+                }
+                res.json({item:await reviewSubmission(pool,id.data,status,req.admin.username,options,clock())});
+            }
             catch(error){if(error instanceof ReviewError)return res.status(error.status).json({error:{code:error.code,message:error.message}});logger.error('Review failed:',error.message);res.status(500).json({error:{code:'REVIEW_FAILED',message:'Unable to complete review. Reload and retry.'}});}
         });
     }

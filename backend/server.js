@@ -9,7 +9,8 @@ const createSubmissionRouter = require("./routes/submissions");
 const createBusinessRouter = require("./routes/businesses");
 const { createAdminRouter } = require("./routes/admin");
 const { createEventImports } = require("./services/eventImports");
-const eventImports = createEventImports({ pool });
+const venueLookup = require("./services/venueLookup").createVenueLookup({ pool });
+const eventImports = createEventImports({ pool, venueLookup });
 const curatorRoutes = require("./routes/curator");
 
 const app = express();
@@ -30,7 +31,7 @@ app.use("/api/v1/curator", curatorRoutes);
 app.use("/api/v1/businesses", createBusinessRouter({ pool }));
 app.use("/api/v1/submissions", createSubmissionRouter({ pool }));
 app.use("/api/v1/reports", require("./routes/reports").createReportRouter({ pool }));
-app.use("/admin", createAdminRouter({ pool, eventImports }));
+app.use("/admin", createAdminRouter({ pool, eventImports, venueLookup }));
 app.use((error, req, res, next) => {
     if (error.type === "entity.too.large") return res.status(413).json({ error: { code: "BODY_TOO_LARGE", message: "The request is too large." } });
     if (error.type === "entity.parse.failed") return res.status(400).json({ error: { code: "INVALID_JSON", message: "Send valid JSON." } });

@@ -2,7 +2,8 @@ const { createHash, randomUUID } = require('node:crypto');
 const ICAL = require('ical.js');
 const { Temporal } = require('@js-temporal/polyfill');
 const { parseSubmission, scheduleBounds } = require('../validation/submission');
-const { submitEvent } = require('./submissions');
+const { createVenueLookup } = require('./venueLookup');
+const { submitEvent, reviewSubmission } = require('./submissions');
 const { ReviewError } = require('./publishExperience');
 const { additionalSources, libraryFallback, tribeRows, simpleCalendarRows } = require('./localEventSources');
 const { venueTimeZone, distanceMiles } = require('./venueLocation');
@@ -165,7 +166,7 @@ async function fetchText(fetcher, url) {
     return Buffer.concat(chunks).toString('utf8');
 }
 
-function createEventImports({ pool, fetcher = fetch, clock = () => new Date() }) {
+function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), venueLookup = createVenueLookup({pool}) }) {
     const cache = new Map();
     let runningSync;
     function load(source) {
@@ -221,7 +222,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
         const ids = feeds.flatMap(feed => feed.items.map(item => item.id));
         if (!ids.length) return feeds;
         const { rows } = await pool.query(
-            'SELECT client_request_id AS id, status, payload FROM event_submissions WHERE client_request_id=ANY($1::uuid[])',
+            'SELECT client_request_id AS id, status, payload, auto_publish_blocked FROM event_submissions WHERE client_request_id=ANY($1::uuid[])',
             [ids]
         );
         const imported = new Map(rows.map(row => [row.id, row]));
@@ -229,14 +230,14 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
             const count = feed.items.length;
             feed.items = feed.items.filter(item => {
                 const previous = imported.get(item.id);
-                return previous?.status !== 'REJECTED' && (!item.issue || previous);
+                return previous?.status !== 'REJECTED' && (!item.issue || item.issue === 'Missing or unsupported schedule' || previous);
             }).map(item => {
                 const previous = imported.get(item.id);
                 if (!previous) return item;
                 const old = previous.payload.event;
                 const changed = item.schedule && ['startDate', 'startTime', 'endTime', 'endsNextDay', 'allDay']
                     .some(key => (old.schedule[key] ?? false) !== item.schedule[key]);
-                return { ...item, queuedStatus: previous.status,
+                return { ...item, queuedStatus: previous.status, autoPublishBlocked:previous.auto_publish_blocked,
                     issue: item.issue || (changed || old.title !== item.title ? 'Source details changed. Review the existing submission.' : null) };
             });
             feed.hidden = count - feed.items.length;
@@ -248,7 +249,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
         const item = feed.items.find(event => event.id === id);
         if (!item || item.issue) throw new ReviewError(400, 'IMPORT_NOT_READY', 'This event needs manual review before it can be queued.');
         const parsed = parseSubmission({
-            clientRequestId: id, venue,
+            clientRequestId: id, venue: await venueLookup.venue(venue),
             event: importEvent(feed, item, [categoryId])
         });
         if (!parsed.success) throw new ReviewError(400, 'IMPORT_INVALID', 'Check the category, venue details, coordinates, and event schedule.');
@@ -282,8 +283,9 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
     async function dismiss({ source, id }, username) {
         const feed = await load(source);
         const item = feed.items.find(event => event.id === id);
-        if (!item || !item.schedule) throw new ReviewError(404, 'IMPORT_NOT_FOUND', 'Refresh the feed to find this event.');
+        if (!item) throw new ReviewError(404, 'IMPORT_NOT_FOUND', 'Refresh the feed to find this event.');
         const payload = { venue: { proposal: proposal(item) }, event: importEvent(feed, item, []) };
+        payload.event.schedule = payload.event.schedule || {};
         const result = await pool.query(
             `INSERT INTO event_submissions (id, client_request_id, payload, status, reviewed_by, reviewed_at, review_note)
              VALUES ($1, $2, $3::jsonb, 'REJECTED', $4, CURRENT_TIMESTAMP, 'Dismissed from event feed')
@@ -300,42 +302,73 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
     }
     async function importEligible() {
         const feeds = await preview();
-        const { rows } = await pool.query(
-            "SELECT id FROM categories WHERE slug IN ('community','hyena-seed-community') ORDER BY slug LIMIT 1"
+        const category = await pool.query(
+            "SELECT id FROM categories WHERE slug='other' OR lower(name)='other' ORDER BY slug LIMIT 1"
         );
-        const categoryId = rows[0]?.id;
-        const summary = { queued: 0, needsReview: 0, unavailable: feeds.filter(feed => feed.error).length };
+        const categoryId = category.rows[0]?.id;
+        const summary = { accepted:0, queued:0, needsReview:0, unavailable:feeds.filter(feed=>feed.error).length };
+        const budget = {remaining:4};
         for (const feed of feeds) {
             for (const item of feed.items) {
-                if (item.queuedStatus || item.issue) continue;
-                const address = item.address || item.venue.split(',')[0];
-                if (!categoryId || !/\b\d+\s+\S/.test(address)) {
+                if (item.queuedStatus === 'APPROVED' || item.queuedStatus === 'REJECTED' || item.autoPublishBlocked) continue;
+                if (item.issue && item.issue !== 'Missing or unsupported schedule') continue;
+                if (!item.schedule || item.issue === 'Missing or unsupported schedule') {
+                    const payload={venue:{proposal:proposal(item)},event:importEvent(feed,item,categoryId?[categoryId]:[])};
+                    payload.event.schedule=payload.event.schedule || {};
+                    const added=await pool.query(
+                        `INSERT INTO event_submissions(id,client_request_id,payload) VALUES($1,$2,$3::jsonb)
+                         ON CONFLICT(client_request_id) DO NOTHING RETURNING id`,
+                        [randomUUID(),item.id,JSON.stringify(payload)]
+                    );
+                    if (added.rows.length) summary.queued++;
                     summary.needsReview++;
                     continue;
                 }
                 let venue;
-                if (item.latitude != null && item.longitude != null) {
-                    venue = { proposal: proposal(item) };
-                } else {
-                    const matches = await pool.query(
-                        `SELECT id,latitude,longitude FROM businesses WHERE is_active AND latitude IS NOT NULL
-                         AND longitude IS NOT NULL AND lower(city)=lower($2)
-                         AND lower(regexp_replace(address,'[^a-zA-Z0-9]','','g')) =
-                             lower(regexp_replace($1,'[^a-zA-Z0-9]','','g')) LIMIT 2`,
-                        [address, item.city]
-                    );
-                    if (matches.rows.length === 1 && distanceMiles(
-                        { latitude: 43.4917, longitude: -112.0339 }, matches.rows[0]
-                    ) <= 100) venue = { businessId: matches.rows[0].id };
+                const address = item.address || item.venue.split(',')[0];
+                const matches = await pool.query(
+                    `SELECT id,latitude,longitude FROM businesses WHERE is_active AND latitude IS NOT NULL
+                     AND longitude IS NOT NULL AND lower(city)=lower($2)
+                     AND (lower(regexp_replace(address,'[^a-zA-Z0-9]','','g')) =
+                         lower(regexp_replace($1,'[^a-zA-Z0-9]','','g')) OR lower(name)=lower($3)) LIMIT 2`,
+                    [address,item.city,item.venueName || item.venue.split(',')[0]]
+                );
+                if (matches.rows.length === 1 && distanceMiles(
+                    {latitude:43.4917,longitude:-112.0339},matches.rows[0]
+                ) <= 100) venue = {businessId:matches.rows[0].id};
+                else if (item.latitude != null && item.longitude != null) venue={proposal:proposal(item)};
+                else {
+                    try {
+                        const resolved=await venueLookup.resolve(proposal(item),{budget});
+                        if (resolved) venue={proposal:resolved};
+                    } catch { /* Lookup outages leave the candidate available for review. */ }
                 }
+                if (!categoryId) { summary.needsReview++; continue; }
                 if (!venue) {
+                    // Preserve incomplete source information for admin correction rather than inventing coordinates.
+                    const payload={venue:{proposal:proposal(item)},event:importEvent(feed,item,[categoryId])};
+                    const added=await pool.query(
+                        `INSERT INTO event_submissions(id,client_request_id,payload) VALUES($1,$2,$3::jsonb)
+                         ON CONFLICT(client_request_id) DO NOTHING RETURNING id`,
+                        [randomUUID(),item.id,JSON.stringify(payload)]
+                    );
+                    if (added.rows.length) summary.queued++;
                     summary.needsReview++;
                     continue;
                 }
                 try {
-                    const result = await queue({ source: feed.source, id: item.id, categoryId,
-                        venue });
-                    if (result.created) summary.queued++;
+                    let submission;
+                    if (item.queuedStatus === 'PENDING') {
+                        const stored=await pool.query('SELECT id FROM event_submissions WHERE client_request_id=$1',[item.id]);
+                        submission=stored.rows[0];
+                    } else {
+                        const result=await queue({source:feed.source,id:item.id,categoryId,venue});
+                        submission=result.item;
+                    }
+                    if (!submission) continue;
+                    const reviewed=await reviewSubmission(pool,submission.id,'APPROVED','Automatic feed import',
+                        {automatic:true,venue},clock());
+                    if (reviewed.status==='APPROVED') summary.accepted++;
                 } catch (error) {
                     if (!(error instanceof ReviewError)) throw error;
                     summary.needsReview++;

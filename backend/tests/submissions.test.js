@@ -27,7 +27,7 @@ async function request(route,body,auth=false,extra={}){
 async function submit(body=event()){const r=await request('/api/v1/submissions',body);assert.equal(r.status,201,JSON.stringify(r.body));return r.body.item;}
 before(async()=>{
  db=new PGlite();await db.waitReady;
- for(const f of ['initial_schema.sql','002_event_submissions.sql','004_event_reports.sql'])await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations',f),'utf8'));
+ for(const f of ['initial_schema.sql','002_event_submissions.sql','004_event_reports.sql','005_venue_lookup.sql'])await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations',f),'utf8'));
  // Apply twice to ensure the migration is repeat-safe.
  await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations/002_event_submissions.sql'),'utf8'));
  ids.area=randomUUID();ids.business=randomUUID();ids.category=randomUUID();ids.closed=randomUUID();
@@ -67,7 +67,14 @@ before(async()=>{
    start_at:start.toISOString(), end_at:new Date(start.getTime()+3600000).toISOString()
   }))]});
  };
- app.use('/admin',createAdminRouter({pool,env,logger:quiet,loginLimiter:skip,importFetcher}));
+ const venueLookup={
+  search:async()=>[{name:'Open Studio',address:'1 Test St',city:'Rexburg',latitude:43.8231,longitude:-111.7924,label:'Open Studio, 1 Test St, Rexburg'}],
+  resolve:async input => input.address==='1 Test St' ? {...input,latitude:43.8231,longitude:-111.7924} : null,
+  venue:async venue => venue.proposal && venue.proposal.latitude == null ? {
+   proposal:{...venue.proposal,latitude:43.8231,longitude:-111.7924}
+  } : venue
+ };
+ app.use('/admin',createAdminRouter({pool,env,logger:quiet,loginLimiter:skip,importFetcher,venueLookup}));
  server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});base='http://127.0.0.1:'+server.address().port;
  const login=await request('/admin/api/login',{username:'reviewer',password:pass});assert.equal(login.status,200);
  session={cookie:login.headers.get('set-cookie').split(';')[0],csrf:login.body.csrfToken};
@@ -343,11 +350,14 @@ test('feed sync queues qualified events once and remembers dismissals before and
  assert.equal((await request(route+'/sync', {}, false)).status, 401);
  const synced = await request(route+'/sync', {}, true);
  assert.equal(synced.status, 200, JSON.stringify(synced.body));
- assert.equal(synced.body.queued, 1);
+ assert.equal(synced.body.accepted, 2);
  assert.equal((await request(route+'/sync', {}, true)).body.queued, 0);
  const status = async id => (await db.query('SELECT status,published_experience_id AS published FROM event_submissions WHERE client_request_id=$1',[id])).rows[0];
- assert.deepEqual(await status(concert.id), {status:'PENDING',published:null});
+ assert.equal((await status(concert.id)).status,'APPROVED');
  assert.equal((await status(fair.id)).status, 'REJECTED');
+ const concertRow=(await db.query('SELECT id FROM event_submissions WHERE client_request_id=$1',[concert.id])).rows[0];
+ assert.equal((await request('/admin/api/submissions/'+concertRow.id+'/undo',{},true)).status,200);
+ assert.equal((await request(route+'/sync',{},true)).body.accepted,0);
  assert.equal((await dismiss(concert.id)).status, 200);
  assert.deepEqual(await status(concert.id), {status:'REJECTED',published:null});
  assert.equal((await request(route+'/sync', {}, true)).body.queued, 0);
@@ -387,4 +397,30 @@ test('undo feed rejection removes its blacklist entry and restores reviewable ca
  assert.ok(restored.payload.event.categoryIds.length);
  const preview = (await request(route,undefined,true)).body;
  assert.ok(preview.feeds[1].items.some(item=>item.title==='Winter craft fair' && item.queuedStatus==='PENDING'));
+});
+
+test('manual submissions can omit description, type and categories and remain Pending with Other',async()=>{
+ const body=event();
+ delete body.event.description;
+ delete body.event.type;
+ delete body.event.categoryIds;
+ const receipt=await submit(body);
+ assert.equal(receipt.status,'PENDING');
+ const row=(await db.query('SELECT payload FROM event_submissions WHERE id=$1',[receipt.id])).rows[0];
+ assert.equal(row.payload.event.type,'EVENT');
+ assert.equal(row.payload.event.description,'Details not provided.');
+ const category=(await db.query('SELECT name FROM categories WHERE id=$1',[row.payload.event.categoryIds[0]])).rows[0];
+ assert.equal(category.name,'Other');
+});
+
+test('admin can search a venue and accept an address-only location',async()=>{
+ assert.equal((await request('/admin/api/venue-search?q=Studio')).status,401);
+ const lookup=await request('/admin/api/venue-search?q=Studio',undefined,true);
+ assert.equal(lookup.status,200);
+ assert.ok(lookup.body.items.length);
+ const receipt=await submit();
+ const accepted=await request('/admin/api/submissions/'+receipt.id+'/approve',{
+  venue:{proposal:{name:'Address Venue',address:'1 Test St',city:'Rexburg'}}
+ },true);
+ assert.equal(accepted.status,200,JSON.stringify(accepted.body));
 });

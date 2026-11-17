@@ -17,7 +17,13 @@ function parseSubmission(input) {
     if(!result.success) return result;
     const body=result.data;
     if(Object.hasOwn(body.event,'businessId')) return {success:false,error:{issues:[{path:['event','businessId'],message:'Choose the venue separately.'}]}};
-    const event=createExperienceSchema.safeParse({...body.event,schedule: {...body.event.schedule, timeZone: body.event.schedule?.timeZone || 'UTC'},businessId:body.venue.businessId||'00000000-0000-0000-0000-000000000000'});
+    const defaults = {
+        type:'EVENT', description:'Details not provided.',
+        categoryIds:['e9d8a249-4259-4b2f-93dc-d75876f293da'], ...body.event
+    };
+    if (typeof defaults.description === 'string' && !defaults.description.trim()) defaults.description='Details not provided.';
+    if (Array.isArray(defaults.categoryIds) && !defaults.categoryIds.length) defaults.categoryIds=['e9d8a249-4259-4b2f-93dc-d75876f293da'];
+    const event=createExperienceSchema.safeParse({...defaults,schedule: {...body.event.schedule, timeZone: body.event.schedule?.timeZone || 'UTC'},businessId:body.venue.businessId||'00000000-0000-0000-0000-000000000000'});
     if(!event.success) return {success:false,error:{issues:event.error.issues.map(issue=>({...issue,path:['event',...issue.path]}))}};
     if(event.data.type!=='EVENT'||event.data.schedule.kind!=='ONCE'||(event.data.priceAmount!==null&&event.data.currency!=='USD')) {
         return {success:false,error:{issues:[{path:['event'],message:'Submit a one-time EVENT with USD pricing or an unknown price.'}]}};

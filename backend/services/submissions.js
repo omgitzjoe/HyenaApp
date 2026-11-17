@@ -1,7 +1,7 @@
 const { venueTimeZone } = require('./venueLocation');
 const { randomUUID } = require('node:crypto');
 const { publishExperience, ReviewError } = require('./publishExperience');
-const { ensureUnexpired } = require('../validation/submission');
+const { ensureUnexpired, parseSubmission } = require('../validation/submission');
 async function validateReferences(db,payload) {
     if(payload.venue.businessId) {
         const b=await db.query(`SELECT b.id FROM businesses b WHERE b.id=$1 AND b.is_active`,[payload.venue.businessId]);
@@ -19,6 +19,10 @@ async function existingReceipt(pool,key,payload) {
     return {item,created:false};
 }
 async function submitEvent(pool,data,now) {
+    if (data.payload.event.categoryIds.includes('e9d8a249-4259-4b2f-93dc-d75876f293da')) {
+        const category=await pool.query("SELECT id FROM categories WHERE slug='other' OR lower(name)='other' ORDER BY slug LIMIT 1");
+        if (category.rows.length) data.payload.event.categoryIds=[...new Set(data.payload.event.categoryIds.map(id=>id==='e9d8a249-4259-4b2f-93dc-d75876f293da'?category.rows[0].id:id))];
+    }
     const location = data.payload.venue.proposal || (await pool.query("SELECT latitude,longitude FROM businesses WHERE id=$1",[data.payload.venue.businessId])).rows[0];
     const normalized = {...data.payload.event, schedule: {...data.payload.event.schedule, timeZone: venueTimeZone(location)}};
     data.payload = {...data.payload, event: normalized};
@@ -64,25 +68,48 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
             }
             await client.query(
                 `UPDATE event_submissions SET status='PENDING', payload=$2::jsonb,
-                 published_experience_id=NULL, reviewed_by=NULL, reviewed_at=NULL, review_note=NULL WHERE id=$1`,
+                 published_experience_id=NULL, reviewed_by=NULL, reviewed_at=NULL, review_note=NULL, auto_publish_blocked=TRUE WHERE id=$1`,
                 [id, JSON.stringify(payload)]
             );
             await client.query('COMMIT');
             started = false;
             return { id, status: 'PENDING', experienceId: null };
         }
+        if (options.automatic && row.auto_publish_blocked) {
+            await client.query('COMMIT');
+            started = false;
+            return {id,status:row.status,experienceId:row.published_experience_id};
+        }
         if(row.status!=='PENDING') {
             if(row.status===action) {await client.query('COMMIT');started=false;return {id:row.id,status:row.status,experienceId:row.published_experience_id};}
             throw new ReviewError(409,'ALREADY_REVIEWED','This submission has already been reviewed. Reload the queue.');
         }
+        if (options.venue) row.payload = {...row.payload,venue:options.venue};
         let experienceId=null;
         if(action==='APPROVED') {
+            const updated={...row.payload.event,...options.event};
+            const valid=parseSubmission({
+                clientRequestId:row.client_request_id,
+                venue:{businessId:row.payload.venue.businessId || '00000000-0000-4000-8000-000000000000'},
+                event:updated
+            });
+            if (!valid.success) throw new ReviewError(400,'EVENT_DETAILS_REQUIRED','Check the title, date, start time and end time before accepting.');
+            row.payload={...row.payload,event:valid.data.payload.event};
             let businessId=options.businessId||row.payload.venue.businessId;
             if(!businessId) {
                 const proposed=row.payload.venue.proposal;
+                const key=[proposed.name,proposed.address,proposed.city].map(value=>String(value).trim().toLowerCase()).join('|');
+                await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[key]);
+                const existingVenue=await client.query(
+                    'SELECT id FROM businesses WHERE is_active AND lower(name)=lower($1) AND lower(address)=lower($2) AND lower(city)=lower($3) LIMIT 1',
+                    [proposed.name,proposed.address,proposed.city]
+                );
+                businessId=existingVenue.rows[0]?.id;
+                if (!businessId) {
                 businessId=randomUUID();
                 await client.query(`INSERT INTO businesses(id,name,address,city,region,postal_code,latitude,longitude,time_zone)
                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[businessId,proposed.name,proposed.address,proposed.city,proposed.region,proposed.postalCode,options.latitude??proposed.latitude,options.longitude??proposed.longitude,venueTimeZone({latitude:options.latitude??proposed.latitude,longitude:options.longitude??proposed.longitude})]);
+                }
             }
             const location=(await client.query("SELECT latitude,longitude FROM businesses WHERE id=$1 FOR UPDATE",[businessId])).rows[0];
             if (location && (location.latitude == null || location.longitude == null) && options.latitude !== undefined) {
@@ -96,7 +123,7 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
             const published=await publishExperience(client,{...event,businessId});experienceId=published.id;
         }
         await client.query(`UPDATE event_submissions SET status=$2,published_experience_id=$3,reviewed_by=$4,
-            reviewed_at=CURRENT_TIMESTAMP,review_note=$5 WHERE id=$1`,[id,action,experienceId,username,options.note||null]);
+            reviewed_at=CURRENT_TIMESTAMP,review_note=$5,payload=$6::jsonb WHERE id=$1`,[id,action,experienceId,username,options.note||null,JSON.stringify(row.payload)]);
         await client.query('COMMIT');started=false;
         return {id,status:action,experienceId};
     } catch(error) {
