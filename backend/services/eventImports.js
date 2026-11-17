@@ -55,7 +55,9 @@ function calendarRows(text) {
     if (calendar.name !== 'vcalendar') throw Error('Expected an iCalendar feed.');
     return calendar.getAllSubcomponents('vevent').map(event => {
         const get = key => event.getFirstPropertyValue(key);
+        const geo = get('geo');
         const row = {
+            latitude:Array.isArray(geo)?geo[0]:null,longitude:Array.isArray(geo)?geo[1]:null,
             id: String(get('uid') || ''), title: get('summary'), venue: get('location'),
             url: get('url'), cancelled: String(get('status')).toUpperCase() === 'CANCELLED',
             notice: isCivicNotice(get('summary'), []),

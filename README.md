@@ -22,7 +22,7 @@ The current field and constraint reference is [`backend/db/schema.sql`](backend/
 DDL against an existing database.
 
 Migration 006 removes the explicit fictional catalog IDs, user/account tables, and
-retired fields. It preserves categories, real feed decisions, and referenced venues.
+retired fields. Migration 007 removes two individually verified live test submissions. Cleanup preserves categories, real feed decisions, and referenced venues.
 Production seed scripts now add categories only; historical catalogs live in test fixtures.
 
 An event needs a title, scheduled start (or All Day), and a venue. Description, end time,

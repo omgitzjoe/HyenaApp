@@ -64,3 +64,12 @@ test('library HTML parser reads dates and deduplicates repeated month cells by s
     assert.equal(items.length,1);
     assert.equal(items[0].schedule.startTime,'10:00:00');
 });
+
+test('iCalendar GEO coordinates and a start without an end are usable feed information',()=>{
+ const calendar=['BEGIN:VCALENDAR','VERSION:2.0','BEGIN:VEVENT','UID:geo-start-only',
+  'SUMMARY:Coordinate gathering','DTSTART:20261120T180000Z','GEO:43.8;-111.8','LOCATION:Local pavilion','END:VEVENT','END:VCALENDAR'].join('\r\n');
+ const rows=calendarRows(calendar);
+ assert.equal(rows[0].latitude,43.8);assert.equal(rows[0].longitude,-111.8);
+ const items=normalize('parks',rows,new Date('2026-11-17T18:00:00Z'));
+ assert.equal(items.length,1);assert.equal(items[0].issue,null);assert.equal(items[0].schedule.endTime,null);
+});

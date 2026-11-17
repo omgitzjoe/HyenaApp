@@ -238,7 +238,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
                 item { Entry("State", state, 100, !submitting) { state = it; edited() } }
                 item { Row { Checkbox(checked = manualCoordinates, onCheckedChange = { manualCoordinates = it; edited() }); Text("Enter coordinates instead") } }
                 item { OutlinedButton(onClick = { resolveAddress() }, enabled = !submitting && !resolving && address.isNotBlank() && city.isNotBlank()) { Text(if (resolving) "Locating venue…" else "Locate address") } }
-                if (nearby != null) item { TextButton(onClick = { latitude = nearby.latitude.toString(); longitude = nearby.longitude.toString(); edited() }, enabled = !submitting && !resolving) { Text("Use my position — venue is here") } }
+                if (nearby != null) item { TextButton(onClick = { latitude = nearby.latitude.toString(); longitude = nearby.longitude.toString(); manualCoordinates = true; edited() }, enabled = !submitting && !resolving) { Text("Use my position — venue is here") } }
                 if (manualCoordinates) item { Entry("Venue latitude", latitude, 20, !submitting && !resolving) { latitude = it; edited() } }
                 if (manualCoordinates) item { Entry("Venue longitude", longitude, 20, !submitting && !resolving) { longitude = it; edited() } }
                 item { Text("Check the coordinates match the venue. Its schedule is interpreted at this location automatically.") }
