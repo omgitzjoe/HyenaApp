@@ -4,11 +4,12 @@ const { Temporal } = require('@js-temporal/polyfill');
 const { parseSubmission, scheduleBounds } = require('../validation/submission');
 const { submitEvent } = require('./submissions');
 const { ReviewError } = require('./publishExperience');
-const { venueTimeZone } = require('./venueLocation');
+const { additionalSources, libraryFallback, tribeRows, simpleCalendarRows } = require('./localEventSources');
+const { venueTimeZone, distanceMiles } = require('./venueLocation');
 
 const zone = 'America/Denver';
 const civicTags = new Set(['closure', 'official business', 'city council', 'trash pickup', 'garbage schedule']);
-const civicTitle = /\b(?:city hall closed|offices? closed|city council (?:meeting|work session)|parking restrictions|garbage schedule)\b/i;
+const civicTitle = /\b(?:city hall closed|offices? closed|city council (?:meeting|work session|work meeting)|parking restrictions|garbage schedule)\b/i;
 const holidayTitle = /^(?:happy )?(?:new year'?s day|memorial day|juneteenth|independence day|4th of july|labor day|veteran(?:s'?|'s) day|thanksgiving(?: day)?|christmas(?: day| eve)?|president(?:s'?|'s) day|martin luther king(?: jr\.?)? day)(?:[.!])?$/i;
 
 function isCivicNotice(title, tags) {
@@ -28,7 +29,8 @@ const sources = {
         page: 'https://www.rexburg.org/events',
         feed: 'https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/21649/cms/events?locale=en&page_no=1',
         json: true
-    }
+    },
+    ...additionalSources
 };
 
 function requestId(source, id) {
@@ -56,6 +58,7 @@ function calendarRows(text) {
             id: String(get('uid') || ''), title: get('summary'), venue: get('location'),
             url: get('url'), cancelled: String(get('status')).toUpperCase() === 'CANCELLED',
             notice: isCivicNotice(get('summary'), []),
+            outsideRegion: /\b(?:Meridian|Boise|Twin Falls|Moab|Salt Lake City)\b/i.test(String(get('location') || '')),
             recurring: ['rrule', 'rdate', 'recurrence-id'].some(key => event.hasProperty(key))
         };
         try {
@@ -119,20 +122,27 @@ function normalize(source, rows, now) {
         const title = String(row.title || '').trim().slice(0, 200);
         const venue = String(row.venue || '').trim().slice(0, 300);
         const schedule = eventSchedule(row);
+        if (row.outsideRegion) continue;
         let url = sources[source].page;
         try {
             const candidate = new URL(row.url);
-            if (candidate.origin === new URL(url).origin && candidate.protocol === 'https:') url = candidate.href;
+            if ([new URL(url).origin, ...(source === 'parks' ? [new URL(libraryFallback.page).origin] : [])].includes(candidate.origin) && candidate.protocol === 'https:') url = candidate.href;
         } catch { /* The feed's calendar page is the attribution fallback. */ }
         const issue = row.cancelled || /\bcancell?ed\b/i.test(title) ? 'Cancelled by the source' :
-            row.notice ? 'City notice or closure' :
+            row.notice || isCivicNotice(title, row.tags || []) ? 'City notice or closure' :
             row.recurring ? 'Recurring series needs manual review' :
             !title || !schedule ? 'Missing or unsupported schedule' : null;
         const coordinate = value => value != null && String(value).trim() !== '' && Number.isFinite(Number(value))
             ? Number(value) : null;
+        const latitude = coordinate(row.latitude);
+        const longitude = coordinate(row.longitude);
+        if (latitude != null && Math.abs(latitude) > 90 || longitude != null && Math.abs(longitude) > 180) continue;
+        if (latitude != null && longitude != null &&
+            distanceMiles({ latitude: 43.4917, longitude: -112.0339 }, { latitude, longitude }) > 100) continue;
         items.push({
             id: requestId(source, row.id), title: title || 'Untitled event', venue, schedule, url, issue,
-            city: sources[source].city, latitude: coordinate(row.latitude), longitude: coordinate(row.longitude)
+            city: row.city || sources[source].city, latitude, longitude,
+            venueName: row.venueName, address: row.address, description: row.description
         });
     }
     return items.sort((a, b) => (a.schedule?.startDate || '9999').localeCompare(b.schedule?.startDate || '9999') ||
@@ -141,7 +151,7 @@ function normalize(source, rows, now) {
 
 async function fetchText(fetcher, url) {
     const response = await fetcher(url, {
-        signal: AbortSignal.timeout(7000), redirect: 'error',
+        signal: AbortSignal.timeout(12000), redirect: 'error',
         headers: { 'User-Agent': 'HyenaApp event calendar preview' }
     });
     if (!response.ok || !response.body) throw Error(`Feed returned HTTP ${response.status}.`);
@@ -163,10 +173,40 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
         if (previous && previous.expires > Date.now()) return previous.promise;
         const config = sources[source];
         const promise = (async () => {
-            const text = await fetchText(fetcher, config.feed);
-            const rows = config.json ? rexburgRows(text) : calendarRows(text);
-            const format = config.json ? 'Public calendar JSON' : 'iCalendar';
-            return { name: config.name, format, records: rows.length, items: normalize(source, rows, clock()) };
+            async function read(config) {
+                const text = await fetchText(fetcher, config.feed);
+                const format = config.json ? 'rexburg' : config.format || 'ical';
+                const parsers = { rexburg: rexburgRows, tribe: tribeRows, ical: calendarRows, simpleCalendar: simpleCalendarRows };
+                const rows = parsers[format](text);
+                let truncated = false;
+                if (format === 'tribe') {
+                    const pages = Math.min(Number(JSON.parse(text.trim()).total_pages) || 1, 3);
+                    truncated = Number(JSON.parse(text.trim()).total_pages) > 3;
+                    for (let page = 2; page <= pages; page++) {
+                        const url = new URL(config.feed);
+                        url.searchParams.set('page', String(page));
+                        const next = await fetchText(fetcher, url.href);
+                        rows.push(...tribeRows(next));
+                    }
+                }
+                return { rows, format, truncated };
+            }
+            let result;
+            let primaryError;
+            try { result = await read(config); }
+            catch (error) { primaryError = error; }
+            let fallback = false;
+            if (source === 'parks' && (!result || !result.rows.length)) {
+                result = await read(libraryFallback);
+                fallback = true;
+            }
+            if (!result) throw primaryError;
+            return {
+                name: config.name, format: result.format, records: result.rows.length,
+                note: fallback ? 'City Parks feed empty or unavailable. Showing Idaho Falls Public Library events.' :
+                    result.truncated ? 'Preview covers the first 150 upcoming source entries.' : null,
+                items: normalize(source, result.rows, clock())
+            };
         })();
         const entry = { expires: Date.now() + 120_000, promise };
         cache.set(source, entry);
@@ -218,6 +258,9 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
         if (!location || location.latitude == null || location.longitude == null) {
             throw new ReviewError(400, 'IMPORT_VENUE_REQUIRED', 'Choose a local venue with verified coordinates.');
         }
+        if (distanceMiles({ latitude: 43.4917, longitude: -112.0339 }, location) > 100) {
+            throw new ReviewError(400, 'IMPORT_OUTSIDE_RADIUS', 'Choose an event venue within 100 miles of Idaho Falls.');
+        }
         const schedule = parsed.data.payload.event.schedule;
         const original = scheduleBounds(schedule);
         const local = scheduleBounds({ ...schedule, timeZone: venueTimeZone(location) });
@@ -228,12 +271,12 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
     }
     function importEvent(feed, item, categoryIds) {
         return {
-            title: item.title, description: `Event listed by ${feed.name}. See the source for details.`,
+            title: item.title, description: item.description || `Event listed by ${feed.name}. See the source for details.`,
             type: 'EVENT', priceAmount: null, sourceUrl: item.url, categoryIds, schedule: item.schedule
         };
     }
     function proposal(item) {
-        return { name: item.venue || 'Venue to verify', address: item.venue || 'Address to verify',
+        return { name: item.venueName || item.venue || 'Venue to verify', address: item.address || item.venue || 'Address to verify',
             city: item.city, latitude: item.latitude, longitude: item.longitude };
     }
     async function dismiss({ source, id }, username) {
@@ -265,15 +308,33 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date() })
         for (const feed of feeds) {
             for (const item of feed.items) {
                 if (item.queuedStatus || item.issue) continue;
-                // Generic city pins are insufficient. Require a street address and source coordinates.
-                if (!categoryId || !/\b\d+\s+\S/.test(item.venue.split(',')[0]) ||
-                    item.latitude == null || item.longitude == null) {
+                const address = item.address || item.venue.split(',')[0];
+                if (!categoryId || !/\b\d+\s+\S/.test(address)) {
+                    summary.needsReview++;
+                    continue;
+                }
+                let venue;
+                if (item.latitude != null && item.longitude != null) {
+                    venue = { proposal: proposal(item) };
+                } else {
+                    const matches = await pool.query(
+                        `SELECT id,latitude,longitude FROM businesses WHERE is_active AND latitude IS NOT NULL
+                         AND longitude IS NOT NULL AND lower(city)=lower($2)
+                         AND lower(regexp_replace(address,'[^a-zA-Z0-9]','','g')) =
+                             lower(regexp_replace($1,'[^a-zA-Z0-9]','','g')) LIMIT 2`,
+                        [address, item.city]
+                    );
+                    if (matches.rows.length === 1 && distanceMiles(
+                        { latitude: 43.4917, longitude: -112.0339 }, matches.rows[0]
+                    ) <= 100) venue = { businessId: matches.rows[0].id };
+                }
+                if (!venue) {
                     summary.needsReview++;
                     continue;
                 }
                 try {
                     const result = await queue({ source: feed.source, id: item.id, categoryId,
-                        venue: { proposal: proposal(item) } });
+                        venue });
                     if (result.created) summary.queued++;
                 } catch (error) {
                     if (!(error instanceof ReviewError)) throw error;

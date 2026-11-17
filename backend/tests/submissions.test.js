@@ -47,6 +47,10 @@ before(async()=>{
  app.use('/limited-reports',require('../routes/reports').createReportRouter({pool,logger:quiet,limiter:requestLimit(1,60000)}));
  app.use('/api/v1/businesses',createBusinessRouter({pool,logger:quiet}));
  const importFetcher = async url => {
+  if (url.includes('ifpl.org')) return Response.json({events:[],total_pages:1});
+  if (!url.includes('idahofallsidaho.gov') && !url.includes('thrillshare')) {
+   return new Response('Unavailable', {status:503});
+  }
   if (url.includes('idahofallsidaho.gov')) {
    return new Response('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n');
   }
@@ -349,4 +353,38 @@ test('feed sync queues qualified events once and remembers dismissals before and
  assert.equal((await request(route+'/sync', {}, true)).body.queued, 0);
  const visible = (await request(route, undefined, true)).body.feeds[1].items;
  assert.ok(!visible.some(item => [fair.id,concert.id].includes(item.id)));
+});
+
+
+test('undo approval withdraws the published event and allows reapproval without recreating its venue', async () => {
+ const submitted = await submit();
+ const endpoint = '/admin/api/submissions/'+submitted.id;
+ const approved = await request(endpoint+'/approve', {}, true);
+ assert.equal(approved.status,200);
+ const oldId = approved.body.item.experienceId;
+ assert.equal((await request(endpoint+'/undo', {}, false)).status,401);
+ assert.equal((await request(endpoint+'/undo', {}, true, {'X-CSRF-Token':'bad'})).status,403);
+ assert.equal((await request(endpoint+'/undo', {}, true)).status,200);
+ assert.equal((await request('/api/v1/experiences/'+oldId)).status,404);
+ const pending = (await db.query('SELECT * FROM event_submissions WHERE id=$1',[submitted.id])).rows[0];
+ assert.equal(pending.status,'PENDING');
+ assert.equal(pending.published_experience_id,null);
+ assert.equal(pending.reviewed_by,null);
+ assert.equal((await request(endpoint+'/undo', {}, true)).status,200);
+ assert.equal((await request(endpoint+'/approve', {}, true)).status,200);
+ assert.equal((await db.query('SELECT is_active FROM experiences WHERE id=$1',[oldId])).rows[0].is_active,false);
+});
+
+test('undo feed rejection removes its blacklist entry and restores reviewable categories', async () => {
+ const route = '/admin/api/event-imports';
+ const {feeds} = (await request(route,undefined,true)).body;
+ // Restore a rejected feed event from the previous sync test.
+ const rejected = (await db.query("SELECT id FROM event_submissions WHERE status='REJECTED' AND payload#>>'{event,title}'='Winter craft fair'")).rows[0];
+ assert.ok(rejected);
+ assert.equal((await request('/admin/api/submissions/'+rejected.id+'/undo',{},true)).status,200);
+ const restored = (await db.query('SELECT payload,status FROM event_submissions WHERE id=$1',[rejected.id])).rows[0];
+ assert.equal(restored.status,'PENDING');
+ assert.ok(restored.payload.event.categoryIds.length);
+ const preview = (await request(route,undefined,true)).body;
+ assert.ok(preview.feeds[1].items.some(item=>item.title==='Winter craft fair' && item.queuedStatus==='PENDING'));
 });

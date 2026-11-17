@@ -8,7 +8,8 @@ const {ReviewError}=require('../services/publishExperience');
 const {scheduleBounds}=require('../validation/submission');
 const {venueTimeZone}=require('../services/venueLocation');
 const {requestLimit}=require('../middleware/requestLimits');
-const {createEventImports}=require('../services/eventImports');
+const {libraryFallback}=require('../services/localEventSources');
+const {createEventImports,sources}=require('../services/eventImports');
 const cookieName='hyena_admin';
 function sessionToken(req){const value=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='));const token=value?.slice(cookieName.length+1);return /^[a-f0-9]{64}$/.test(token||'')?token:null;}
 function sameOrigin(req,res,next){
@@ -22,6 +23,14 @@ const approval=z.strictObject({businessId:z.uuid().optional(),latitude:z.number(
 const rejection=z.strictObject({note:z.string().trim().min(1).max(2000)});
 function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Date(),loginLimiter=requestLimit(5,15*60*1000),importFetcher=fetch,eventImports=createEventImports({pool,clock,fetcher:importFetcher})}){
     const router=express.Router();
+    const feedOrigins = new Set([
+        ...Object.values(sources).map(source => new URL(source.page).origin),
+        new URL(libraryFallback.page).origin
+    ]);
+    function fromFeed(row) {
+        try { return feedOrigins.has(new URL(row.payload.event.sourceUrl).origin); }
+        catch { return false; }
+    }
     router.use((req,res,next)=>{
         res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
             'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});
@@ -78,7 +87,7 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
         }
     });
     router.post('/api/event-imports/dismiss', async (req, res) => {
-        const parsed = z.strictObject({ source: z.enum(['parks', 'rexburg']), id: z.uuid() }).safeParse(req.body);
+        const parsed = z.strictObject({ source: z.enum(Object.keys(sources)), id: z.uuid() }).safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ error: { message: 'Choose a feed event to dismiss.' } });
         try {
             await imports.dismiss(parsed.data, req.admin.username);
@@ -91,7 +100,7 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
     });
     router.post('/api/event-imports', async (req, res) => {
         const parsed = z.strictObject({
-            source: z.enum(['parks', 'rexburg']), id: z.uuid(), categoryId: z.uuid(),
+            source: z.enum(Object.keys(sources)), id: z.uuid(), categoryId: z.uuid(),
             venue: z.record(z.string(), z.unknown())
         }).safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ error: { message: 'Choose a feed event, category, and venue.' } });
@@ -130,12 +139,12 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
                 WHERE s.status=$1 AND ($2::timestamptz IS NULL OR (s.created_at,s.id)<($2::timestamptz,$3::uuid))
                 ORDER BY s.created_at DESC,s.id DESC LIMIT 51`,[parsed.data.status,cursor?.created_at??null,cursor?.id??null]);
             const items=result.rows.slice(0,50).map(row=>{
-                try { const location=row.payload.venue.proposal||row.business; return {...row,occurrence:scheduleBounds({...row.payload.event.schedule,timeZone:venueTimeZone(location)})}; }
-                catch { return {...row,occurrence:null}; }
+                try { const location=row.payload.venue.proposal||row.business; return {...row,fromFeed:fromFeed(row),occurrence:scheduleBounds({...row.payload.event.schedule,timeZone:venueTimeZone(location)})}; }
+                catch { return {...row,fromFeed:fromFeed(row),occurrence:null}; }
             });res.json({items,nextCursor:result.rows.length>50?items[items.length-1].id:null});
         }catch(error){logger.error('Queue failed:',error.message);res.status(500).json({error:{code:'QUEUE_UNAVAILABLE',message:'Unable to load submissions. Check that migration 002 is applied.'}});}
     });
-    for(const [route,status,schema] of [['approve','APPROVED',approval],['reject','REJECTED',rejection]]){
+    for(const [route,status,schema] of [['approve','APPROVED',approval],['reject','REJECTED',rejection],['undo','PENDING',z.strictObject({})]]){
         router.post('/api/submissions/:id/'+route,async(req,res)=>{
             const id=z.uuid().safeParse(req.params.id),body=schema.safeParse(req.body);
             if(!id.success||!body.success)return res.status(400).json({error:{code:'INVALID_REVIEW',message:'Check the review note, venue ID, and coordinates.'}});

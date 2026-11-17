@@ -42,7 +42,22 @@ async function select(id){
     }
     facts.append(fact('PRICE',event.priceAmount===null?'Price unknown':event.priceAmount+' '+event.currency),fact('CATEGORIES',event.categoryIds.map(x=>categoryNames.get(x)||x).join(', ')));
     if(event.offer)facts.append(fact('OFFER',event.offer));if(event.requirements)facts.append(fact('REQUIREMENTS',event.requirements));detail.append(facts,element('p','Reference '+row.id,'muted'));
-    if(row.status!=='PENDING'){detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.reviewedAt).toLocaleString('en-US',{hour12:true}),'muted'));if(row.reviewNote)detail.append(fact('REVIEW NOTE',row.reviewNote));if(row.experienceId){const link=element('a','View published API entry');link.href='/api/v1/experiences/'+encodeURIComponent(row.experienceId);link.target='_blank';link.rel='noopener';detail.append(link);}return;}
+    if(row.status!=='PENDING'){
+        const undo = element('button', 'Undo decision · return to Pending');
+        undo.addEventListener('click', async () => {
+            if (busy) return;
+            busy = true;
+            undo.disabled = true;
+            try {
+                await api('/admin/api/submissions/'+id+'/undo', { method:'POST', body:'{}' });
+                notice('Decision undone. The event is back in Pending.', true);
+                busy = false;
+                await loadQueue();
+            } catch(error) { notice(error.message); }
+            finally { busy = false; undo.disabled = false; }
+        });
+        detail.append(undo);
+detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.reviewedAt).toLocaleString('en-US',{hour12:true}),'muted'));if(row.reviewNote)detail.append(fact('REVIEW NOTE',row.reviewNote));if(row.experienceId){const link=element('a','View published API entry');link.href='/api/v1/experiences/'+encodeURIComponent(row.experienceId);link.target='_blank';link.rel='noopener';detail.append(link);}return;}
     const actions=element('div',undefined,'review-actions');actions.append(element('h3','Review decision'));
     const venueSelect=element('select');venueSelect.append(new Option(proposal?'Create proposed venue':'Keep submitted venue',''));
     let latitude,longitude;
@@ -60,10 +75,7 @@ async function select(id){
         api('/api/v1/businesses?'+new URLSearchParams({q:proposal.name.split(',')[0].slice(0,100),searchAll:'true'})).then(data=>{if(selectedId===id)data.items.forEach(x=>venueSelect.append(new Option(x.name+' · '+x.address,x.id)));}).catch(()=>notice('Venue matches could not load. Refresh before approving a new venue.'));
     }
     const note=element('textarea');note.maxLength=2000;note.placeholder='Required for rejection; optional for approval.';const noteLabel=element('label','Review note');noteLabel.append(note);actions.append(noteLabel);
-    const fromFeed = typeof event.sourceUrl === 'string' && (
-        event.sourceUrl.startsWith('https://www.rexburg.org/events') ||
-        event.sourceUrl.startsWith('https://www.idahofallsidaho.gov/calendar.aspx')
-    );
+    const fromFeed = row.fromFeed === true;
     const approve=element('button','Approve & publish','primary');
     const reject=element('button',fromFeed ? 'Reject & hide from feed' : 'Reject submission','danger');
     async function decision(action){
@@ -166,8 +178,8 @@ function renderImport(feed, item) {
     form.append(search, venueLabel);
     const proposal = element('fieldset');
     proposal.append(element('legend', 'New venue · verify the address and coordinates'));
-    const name = importField(proposal, 'Venue name');
-    const address = importField(proposal, 'Address', item.venue);
+    const name = importField(proposal, 'Venue name', item.venueName || '');
+    const address = importField(proposal, 'Address', item.address || item.venue);
     const city = importField(proposal, 'City', item.city);
     const latitude = importField(proposal, 'Latitude', item.latitude ?? '', 'number');
     const longitude = importField(proposal, 'Longitude', item.longitude ?? '', 'number');
@@ -221,6 +233,7 @@ async function previewImports() {
         for (const feed of feeds) {
             const section = element('section');
             section.append(element('h3', feed.name));
+            if (feed.note) section.append(element('p', feed.note));
             section.append(element('p', feed.error || (feed.records
                 ? feed.format + ' · ' + feed.records + ' records fetched · ' + feed.items.length + ' in preview · ' + (feed.hidden || 0) + ' filtered or dismissed'
                 : feed.format + ' · Feed returned zero event records')));

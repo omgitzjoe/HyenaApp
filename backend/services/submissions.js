@@ -37,6 +37,40 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
         const result=await client.query('SELECT * FROM event_submissions WHERE id=$1 FOR UPDATE',[id]);
         if(!result.rows.length) throw new ReviewError(404,'SUBMISSION_NOT_FOUND','Submission not found.');
         const row=result.rows[0];
+        if (action === 'PENDING') {
+            if (row.status === 'PENDING') {
+                await client.query('COMMIT');
+                started = false;
+                return { id: row.id, status: 'PENDING', experienceId: null };
+            }
+            let payload = row.payload;
+            if (row.status === 'APPROVED') {
+                const published = await client.query(
+                    'UPDATE experiences SET is_active=FALSE WHERE id=$1 RETURNING business_id',
+                    [row.published_experience_id]
+                );
+                if (published.rows.length) {
+                    payload = { ...payload, venue: { businessId: published.rows[0].business_id } };
+                }
+            }
+            if (!payload.event.categoryIds?.length) {
+                const category = await client.query(
+                    "SELECT id FROM categories WHERE slug IN ('community','hyena-seed-community') ORDER BY slug LIMIT 1"
+                );
+                if (!category.rows.length) {
+                    throw new ReviewError(400, 'CATEGORY_REQUIRED', 'Create a Community category before restoring this feed event.');
+                }
+                payload = { ...payload, event: { ...payload.event, categoryIds: [category.rows[0].id] } };
+            }
+            await client.query(
+                `UPDATE event_submissions SET status='PENDING', payload=$2::jsonb,
+                 published_experience_id=NULL, reviewed_by=NULL, reviewed_at=NULL, review_note=NULL WHERE id=$1`,
+                [id, JSON.stringify(payload)]
+            );
+            await client.query('COMMIT');
+            started = false;
+            return { id, status: 'PENDING', experienceId: null };
+        }
         if(row.status!=='PENDING') {
             if(row.status===action) {await client.query('COMMIT');started=false;return {id:row.id,status:row.status,experienceId:row.published_experience_id};}
             throw new ReviewError(409,'ALREADY_REVIEWED','This submission has already been reviewed. Reload the queue.');
