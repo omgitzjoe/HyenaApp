@@ -13,10 +13,15 @@ import com.example.hyenaapp.R
 import com.example.hyenaapp.domain.model.Experience
 import com.google.gson.Gson
 import java.time.Instant
+import kotlinx.coroutines.*
+import com.example.hyenaapp.data.repository.SavedEventSync
 
 internal fun reminderTrigger(start: String?, minutes: Int, now: Long): Long? =
     runCatching { Instant.parse(start).toEpochMilli() - minutes * 60_000L }.getOrNull()
         ?.takeIf { minutes > 0 && it > now }
+
+internal fun reminderIsDue(start: String, minutes: Int, now: Long): Boolean =
+    runCatching { minutes > 0 && Instant.parse(start).toEpochMilli() - minutes * 60_000L <= now }.getOrDefault(false)
 
 internal data class EventReminder(val id: String, val title: String, val venue: String, val start: String, val minutes: Int, val end: String? = null)
 
@@ -108,15 +113,17 @@ class EventReminders(private val context: Context) {
             if (minutes > 0 && previous != null &&
                 previous.minutes == minutes && previous.start == experience.occurrenceStart
             ) {
-                if (previous.end != experience.occurrenceEnd) {
-                    val updated = previous.copy(end = experience.occurrenceEnd)
+                if (previous.end != experience.occurrenceEnd || previous.title != experience.title || previous.venue != experience.businessName) {
+                    val updated = previous.copy(end = experience.occurrenceEnd, title = experience.title, venue = experience.businessName)
                     storage.edit().putString(previous.id, gson.toJson(updated)).commit()
                 }
             } else if (reminderTrigger(experience.occurrenceStart, minutes, System.currentTimeMillis()) != null) {
                 schedule(experience, minutes)
-            } else if (previous != null) {
-                cancel(experience.id)
-            }
+            } else if (minutes > 0 && experience.occurrenceStart != null && runCatching { Instant.parse(experience.occurrenceStart).toEpochMilli() > System.currentTimeMillis() }.getOrDefault(false)
+                && choices.getString("delivered:${experience.id}", null) != "${experience.occurrenceStart}|$minutes") {
+                val record = EventReminder(experience.id, experience.title, experience.businessName, experience.occurrenceStart, minutes, experience.occurrenceEnd)
+                if (storage.edit().putString(record.id, gson.toJson(record)).commit()) deliver(record.id)
+            } else if (previous != null) { cancel(experience.id) }
         }
     }
 
@@ -136,40 +143,59 @@ class EventReminders(private val context: Context) {
     }
     @android.annotation.SuppressLint("MissingPermission")
     fun deliver(id: String) {
-        if (id == "notification-test") {
-            cancel(id)
-            return
+        synchronized(deliveryLock) {
+            if (id == "notification-test") {
+                cancel(id)
+                return
+            }
+            val record = records().firstOrNull { it.id == id } ?: return
+            val trigger = runCatching { Instant.parse(record.start).toEpochMilli() - record.minutes * 60_000L }.getOrNull() ?: return
+            if (!reminderIsDue(record.start, record.minutes, System.currentTimeMillis())) { setAlarm(trigger, id); return }
+            if (choices.getString("delivered:$id", null) == "${record.start}|${record.minutes}") { cancel(id); return }
+            val end = runCatching { Instant.parse(record.end ?: record.start).toEpochMilli() }.getOrNull()
+            if (end == null || end <= System.currentTimeMillis()) { cancel(id); status("Expired event reminder discarded: ${record.title}"); return }
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(NotificationChannel(CHANNEL, "Saved event reminders", NotificationManager.IMPORTANCE_DEFAULT))
+            if (!notificationsAllowed()) { status("Delivery blocked by Android notification settings: ${record.title}"); return }
+            val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java)
+                .setAction("com.example.hyenaapp.OPEN_SAVED").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val time = Instant.parse(record.start).atZone(java.time.ZoneId.systemDefault())
+                .format(java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d · h:mm a", java.util.Locale.US))
+            try {
+            NotificationManagerCompat.from(context).notify(id, 1, NotificationCompat.Builder(context, CHANNEL)
+                .setSmallIcon(R.drawable.ic_reminder).setContentTitle(record.title)
+                .setContentText("${record.venue} · $time").setStyle(NotificationCompat.BigTextStyle().bigText("${record.venue} · $time"))
+                .setContentIntent(open).setAutoCancel(true).build())
+            choices.edit().putString("delivered:$id", "${record.start}|${record.minutes}").commit()
+            alarm.cancel(pending(id))
+            storage.edit().remove(id).commit()
+            status("Notification posted to Android: ${record.title}")
+            } catch (error: SecurityException) { status("Notification permission was revoked: ${record.title}") }
         }
-        val record = records().firstOrNull { it.id == id } ?: return
-        val end = runCatching { Instant.parse(record.end ?: record.start).toEpochMilli() }.getOrNull()
-        if (end == null || end <= System.currentTimeMillis()) { cancel(id); status("Expired event reminder discarded: ${record.title}"); return }
-        val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Saved event reminders", NotificationManager.IMPORTANCE_DEFAULT))
-        if (!notificationsAllowed()) { status("Delivery blocked by Android notification settings: ${record.title}"); return }
-        val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java)
-            .setAction("com.example.hyenaapp.OPEN_SAVED").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val time = Instant.parse(record.start).atZone(java.time.ZoneId.systemDefault())
-            .format(java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d · h:mm a", java.util.Locale.US))
-        try {
-        NotificationManagerCompat.from(context).notify(id, 1, NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(R.drawable.ic_reminder).setContentTitle(record.title)
-            .setContentText("${record.venue} · $time").setStyle(NotificationCompat.BigTextStyle().bigText("${record.venue} · $time"))
-            .setContentIntent(open).setAutoCancel(true).build())
-        alarm.cancel(pending(id))
-        storage.edit().remove(id).commit()
-        status("Notification posted to Android: ${record.title}")
-        } catch (error: SecurityException) { status("Notification permission was revoked: ${record.title}") }
     }
     companion object {
+        private val deliveryLock = Any()
         const val CHANNEL = "saved_events"
     }
 }
 
 class EventReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val reminders = EventReminders(context)
-        if (intent.action == "com.example.hyenaapp.REMIND") intent.data?.lastPathSegment?.let { reminders.deliver(it) }
-        else reminders.restore()
+        val pending = goAsync()
+        SavedEventSyncJob.ensureScheduled(context)
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                withTimeoutOrNull(7_000) { SavedEventSync.refresh(context.applicationContext) }
+                val reminders = EventReminders(context)
+                if (intent.action == "com.example.hyenaapp.REMIND") intent.data?.lastPathSegment?.let { reminders.deliver(it) }
+                else reminders.restore()
+            } catch (error: Exception) {
+                // Keep the cached reminder usable if refresh cannot complete.
+                val reminders = EventReminders(context)
+                if (intent.action == "com.example.hyenaapp.REMIND") intent.data?.lastPathSegment?.let { reminders.deliver(it) }
+                else reminders.restore()
+            } finally { pending.finish() }
+        }
     }
 }

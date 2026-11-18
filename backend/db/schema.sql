@@ -1,4 +1,4 @@
--- Current Hyena schema after migration 008. Reference only; use versioned migrations for upgrades.
+-- Current Hyena schema after migration 009. Reference only; use versioned migrations for upgrades.
 
 CREATE TABLE admin_sessions (
     token_hash character(64) NOT NULL,
@@ -92,6 +92,7 @@ CREATE TABLE event_submissions (
     request_payload jsonb,
     revision integer NOT NULL DEFAULT 0,
     duplicate_of uuid,
+    source_snapshot jsonb,
     CONSTRAINT event_submissions_auto_publish_blocked_not_null NOT NULL auto_publish_blocked,
     CONSTRAINT event_submissions_client_request_id_key UNIQUE (client_request_id),
     CONSTRAINT event_submissions_client_request_id_not_null NOT NULL client_request_id,
@@ -177,6 +178,34 @@ CREATE TABLE experiences (
     CONSTRAINT experiences_type_check CHECK ((type = ANY (ARRAY['OTHER'::text, 'OFFER'::text, 'EVENT'::text, 'ACTIVITY'::text, 'SPECIAL'::text]))),
     CONSTRAINT experiences_type_not_null NOT NULL type,
     CONSTRAINT experiences_updated_at_not_null NOT NULL updated_at
+);
+
+CREATE TABLE feed_changes (
+    id uuid NOT NULL,
+    submission_id uuid NOT NULL,
+    fingerprint character(64) NOT NULL,
+    kind text NOT NULL,
+    previous jsonb NOT NULL,
+    incoming jsonb NOT NULL,
+    status text NOT NULL DEFAULT 'OPEN'::text,
+    first_seen_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resolved_at timestamp with time zone,
+    resolved_by text,
+    CONSTRAINT feed_changes_fingerprint_not_null NOT NULL fingerprint,
+    CONSTRAINT feed_changes_first_seen_at_not_null NOT NULL first_seen_at,
+    CONSTRAINT feed_changes_id_not_null NOT NULL id,
+    CONSTRAINT feed_changes_incoming_not_null NOT NULL incoming,
+    CONSTRAINT feed_changes_kind_check CHECK ((kind = ANY (ARRAY['CANCELLATION'::text, 'RESCHEDULE'::text, 'DETAILS'::text]))),
+    CONSTRAINT feed_changes_kind_not_null NOT NULL kind,
+    CONSTRAINT feed_changes_last_seen_at_not_null NOT NULL last_seen_at,
+    CONSTRAINT feed_changes_pkey PRIMARY KEY (id),
+    CONSTRAINT feed_changes_previous_not_null NOT NULL previous,
+    CONSTRAINT feed_changes_status_check CHECK ((status = ANY (ARRAY['OPEN'::text, 'RESOLVED'::text, 'IGNORED'::text]))),
+    CONSTRAINT feed_changes_status_not_null NOT NULL status,
+    CONSTRAINT feed_changes_submission_id_fingerprint_key UNIQUE (submission_id, fingerprint),
+    CONSTRAINT feed_changes_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES event_submissions(id) ON DELETE CASCADE,
+    CONSTRAINT feed_changes_submission_id_not_null NOT NULL submission_id
 );
 
 CREATE TABLE schema_migrations (

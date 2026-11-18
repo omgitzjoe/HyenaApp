@@ -1,5 +1,12 @@
 package com.example.hyenaapp
 
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.runtime.DisposableEffect
+import com.example.hyenaapp.data.repository.SavedEventSync
+
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Alignment
@@ -30,7 +37,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -44,9 +50,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.hyenaapp.data.repository.DiscoveryFilters
 import com.example.hyenaapp.data.repository.NearbyLocation
 import com.example.hyenaapp.data.repository.SavedExperienceCodec
@@ -83,6 +86,7 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
         savesReady = false
         try {
             savedExperiences = savedStore.load()
+            savedExperiences = SavedEventSync.refresh(context)
             reminders.updateSaved(savedExperiences)
             reminders.restore()
             savedError = null
@@ -93,13 +97,23 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
             savedError = "Couldn't read saved experiences. Your existing saved data has been kept."
         } finally { savesLoading = false }
     }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_START) savedReloadKey++ }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) { kotlinx.coroutines.delay(5 * 60_000L); savedReloadKey++ }
+        }
+    }
     val toggleSave: (Experience) -> Unit = { experience ->
         if (savesReady && !saving && !savesLoading) {
             saving = true
             scope.launch {
                 try {
-                    val updated = SavedExperienceCodec.toggle(savedExperiences, experience)
-                    savedStore.save(updated)
+                    val updated = savedStore.update { SavedExperienceCodec.toggle(it, experience) }
                     savedExperiences = updated
                     if (updated.none { it.id == experience.id }) reminders.cancel(experience.id)
                     reminders.updateSaved(updated)
@@ -135,6 +149,7 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
 
     val screenState = rememberSaveableStateHolder()
     var selectedTab by rememberSaveable { mutableStateOf(if ((context as? android.app.Activity)?.intent?.action == "com.example.hyenaapp.OPEN_SAVED") "Saved" else "Home") }
+    LaunchedEffect(selectedTab) { if (selectedTab == "Saved") savedReloadKey++ }
     var showingSubmission by rememberSaveable { mutableStateOf(false) }
     var showingDetails by rememberSaveable { mutableStateOf(false) }
     var detailId by rememberSaveable { mutableStateOf("") }
@@ -148,7 +163,9 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
     var detailLongitude by rememberSaveable { mutableStateOf<Double?>(null) }
     var detailCategories by rememberSaveable { mutableStateOf("[]") }
     var detailPrice by rememberSaveable { mutableStateOf("Price unknown") }
+    var detailWasSaved by rememberSaveable { mutableStateOf(false) }
     val openExperience: (Experience) -> Unit = {
+        detailWasSaved = it.id in savedIds
         detailCategories = com.google.gson.Gson().toJson(it.categories.orEmpty())
         detailPrice = it.priceLabel ?: "Price unknown"
         detailLatitude = it.latitude
@@ -162,7 +179,9 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
         detailEnd = it.occurrenceEnd
         showingDetails = true
     }
-    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(savedExperiences, showingDetails, savesReady) {
+        if (showingDetails && detailWasSaved && savesReady && savedExperiences.none { it.id == detailId }) showingDetails = false
+    }
     DisposableEffect(context, lifecycleOwner) {
         val updateZone = {
             val current = ZoneId.systemDefault().id
@@ -226,12 +245,12 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
                 if (showingSubmission) {
                     SubmitEventScreen(nearby = nearby, radiusMiles = radiusMiles, onDone = { showingSubmission = false })
                 } else if (showingDetails) {
-                    val experience = Experience(detailId, detailTitle, detailBusiness, detailSchedule, detailOffer, detailStart, detailEnd, latitude = detailLatitude, longitude = detailLongitude, priceLabel = detailPrice, categories = com.google.gson.Gson().fromJson(detailCategories, Array<com.example.hyenaapp.domain.model.EventCategory>::class.java).toList())
+                    val experience = savedExperiences.firstOrNull { it.id == detailId } ?: Experience(detailId, detailTitle, detailBusiness, detailSchedule, detailOffer, detailStart, detailEnd, latitude = detailLatitude, longitude = detailLongitude, priceLabel = detailPrice, categories = com.google.gson.Gson().fromJson(detailCategories, Array<com.example.hyenaapp.domain.model.EventCategory>::class.java).toList())
                     ExperienceDetailsScreen(
-                        eventId = detailId, priceLabel = detailPrice,
-                        title = detailTitle, businessName = detailBusiness,
-                        latitude = detailLatitude, longitude = detailLongitude,
-                        schedule = displaySchedule(experience, timeZone), offer = detailOffer,
+                        eventId = experience.id, priceLabel = experience.priceLabel,
+                        title = experience.title, businessName = experience.businessName,
+                        latitude = experience.latitude, longitude = experience.longitude,
+                        schedule = displaySchedule(experience, timeZone), offer = experience.offer,
                         onBack = { showingDetails = false }, isSaved = detailId in savedIds,
                         savingEnabled = savingEnabled, onToggleSave = { toggleSave(experience) },
                         reminderSettings = {
@@ -247,6 +266,7 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
                             savingEnabled = savingEnabled, onToggleSave = toggleSave,
                             onExperienceClick = openExperience,
                             reminderSettings = {
+                                androidx.compose.material3.TextButton(onClick = { savedReloadKey++ }, enabled = !savesLoading) { androidx.compose.material3.Text("Refresh saved events") }
                                 ReminderControls(reminders, savedExperiences, enabled = savingEnabled)
                             }
                         )

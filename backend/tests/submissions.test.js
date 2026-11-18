@@ -27,7 +27,7 @@ async function request(route,body,auth=false,extra={}){
 async function submit(body=event()){const r=await request('/api/v1/submissions',body);assert.equal(r.status,201,JSON.stringify(r.body));return r.body.item;}
 before(async()=>{
  db=new PGlite();await db.waitReady;
- for(const f of ['initial_schema.sql','002_event_submissions.sql','004_event_reports.sql','005_venue_lookup.sql','006_lightweight_calendar.sql','008_admin_management.sql'])await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations',f),'utf8'));
+ for(const f of ['initial_schema.sql','002_event_submissions.sql','004_event_reports.sql','005_venue_lookup.sql','006_lightweight_calendar.sql','008_admin_management.sql','009_feed_changes.sql'])await db.exec(fs.readFileSync(path.join(__dirname,'../db/migrations',f),'utf8'));
 
  ids.area=randomUUID();ids.business=randomUUID();ids.category=randomUUID();ids.closed=randomUUID();
  await db.query("INSERT INTO businesses(id,name,address,city,is_active,latitude,longitude) VALUES ($1,'Open Studio','1 Test St','Rexburg',TRUE,43.8231,-111.7924),($2,'Closed Studio','2 Test St','Rexburg',FALSE,43.8231,-111.7924)",[ids.business,ids.closed]);
@@ -579,4 +579,82 @@ test('a duplicate found through a venue alias does not leave an unused new venue
  const result=await reviewSubmission(pool,(await submit(alias)).id,'APPROVED','feed importer',{automatic:true});
  assert.equal(result.duplicateOf,accepted.experienceId);
  assert.equal((await db.query('SELECT count(*)::int AS n FROM businesses')).rows[0].n,count);
+});
+
+test('bulk category and price editing is atomic, revision checked and preserves unrelated fields',async()=>{
+ const one=await submit(),two=await submit();
+ const first=await request('/admin/api/submissions/bulk-edit',{entries:[{id:one.id,revision:0},{id:two.id,revision:0}],event:{priceAmount:'0',categoryIds:[]}},true);
+ assert.equal(first.status,200,JSON.stringify(first.body));
+ for(const id of [one.id,two.id]){const row=(await db.query('SELECT payload,revision FROM event_submissions WHERE id=$1',[id])).rows[0];assert.equal(row.payload.event.priceAmount,'0');assert.deepEqual(row.payload.event.categoryIds,[]);assert.equal(row.revision,1);}
+ const stale=await request('/admin/api/submissions/bulk-edit',{entries:[{id:one.id,revision:1},{id:two.id,revision:0}],event:{priceAmount:'10'}},true);
+ assert.equal(stale.status,409);
+ for(const id of [one.id,two.id])assert.equal((await db.query('SELECT payload FROM event_submissions WHERE id=$1',[id])).rows[0].payload.event.priceAmount,'0');
+ assert.equal((await request('/admin/api/submissions/bulk-edit',{entries:[{id:one.id,revision:1}],event:{priceAmount:'-1'}},true)).status,400);
+ assert.equal((await request('/admin/api/submissions/bulk-edit',{entries:[{id:one.id,revision:1}],event:{priceAmount:null}},false)).status,401);
+});
+
+test('saved refresh follows edits and returns confirmed unavailable IDs without depending on radius filters',async()=>{
+ const body=event();const receipt=await submit(body);const approved=await reviewSubmission(pool,receipt.id,'APPROVED','reviewer');
+ const id=approved.experienceId,missing=randomUUID();
+ const updated=await request('/admin/api/submissions/'+receipt.id+'/edit',{revision:1,event:{priceAmount:'0',schedule:{...body.event.schedule,startTime:'21:00',endTime:'22:00'}}},true);assert.equal(updated.status,200);
+ const response=await request('/api/v1/experiences/saved-refresh?ids='+id+','+missing);
+ assert.equal(response.status,200,JSON.stringify(response.body));assert.deepEqual(response.body.unavailableIds,[missing]);
+ assert.equal(response.body.items[0].priceAmount,'0.00');assert.ok(response.body.items[0].nextOccurrence);assert.equal(response.body.items[0].startTime,'21:00:00');
+ await reviewSubmission(pool,receipt.id,'PENDING','reviewer');
+ assert.deepEqual((await request('/api/v1/experiences/saved-refresh?ids='+id)).body.unavailableIds,[id]);
+ assert.equal((await request('/api/v1/experiences/saved-refresh?ids=bad')).status,400);
+});
+
+test('feed reschedules and cancellations create one alert, apply preserves price/categories and cancellation withdraws',async()=>{
+ const {createEventImports}=require('../services/eventImports');
+ const sourceId=930001,title='Source change tracking '+randomUUID().slice(0,8);
+ const start=new Date(Date.now()+3*86400000),end=new Date(start.getTime()+3600000);
+ const source={id:sourceId,title,venue:'Open Studio',start_at:start.toISOString(),end_at:end.toISOString()};
+ const importer=value=>createEventImports({pool,clock:now,fetcher:async url=>{if(url.includes('thrillshare'))return Response.json({events:[value]});throw Error('Only one source in this test');}});
+ assert.equal((await importer(source).sync()).accepted,1);
+ const row=(await db.query("SELECT * FROM event_submissions WHERE payload#>>'{event,title}'=$1",[title])).rows[0];
+ await reviewSubmission(pool,row.id,'EDIT','reviewer',{revision:row.revision,event:{priceAmount:'7',categoryIds:[ids.category]}});
+ const moved={...source,start_at:new Date(start.getTime()+7200000).toISOString(),end_at:new Date(end.getTime()+7200000).toISOString()};
+ await importer(moved).sync();await importer(moved).sync();
+ let changes=(await request('/admin/api/feed-changes',undefined,true)).body.items.filter(x=>x.submissionId===row.id);
+ assert.equal(changes.length,1);assert.equal(changes[0].kind,'RESCHEDULE');
+ const applied=await request('/admin/api/feed-changes/'+changes[0].id+'/apply',{submissionRevision:changes[0].submissionRevision},true);assert.equal(applied.status,200,JSON.stringify(applied.body));
+ const changed=(await db.query('SELECT payload FROM event_submissions WHERE id=$1',[row.id])).rows[0].payload.event;
+ assert.equal(changed.priceAmount,'7');assert.deepEqual(changed.categoryIds,[ids.category]);
+ await importer(moved).sync();assert.equal((await request('/admin/api/feed-changes',undefined,true)).body.items.filter(x=>x.submissionId===row.id).length,0);
+ const canceled={...moved,title:'Canceled: '+title};await importer(canceled).sync();
+ changes=(await request('/admin/api/feed-changes',undefined,true)).body.items.filter(x=>x.submissionId===row.id);
+ assert.equal(changes[0].kind,'CANCELLATION');
+ assert.equal((await request('/admin/api/feed-changes/'+changes[0].id+'/apply',{submissionRevision:changes[0].submissionRevision},true)).status,200);
+ assert.equal((await request('/api/v1/experiences/'+row.published_experience_id)).status,404);
+ assert.equal((await db.query('SELECT status FROM event_submissions WHERE id=$1',[row.id])).rows[0].status,'REJECTED');
+});
+
+test('dismissing a source alert keeps admin edits and stale source actions are rejected',async()=>{
+ const {snapshot,observe}=require('../services/feedChanges');
+ const body=event();const receipt=await submit(body);await reviewSubmission(pool,receipt.id,'APPROVED','reviewer');
+ const old={title:body.event.title,schedule:body.event.schedule,venue:'Open Studio',city:'Rexburg'};
+ const baseline=snapshot(old);await db.query('UPDATE event_submissions SET source_snapshot=$2::jsonb WHERE id=$1',[receipt.id,JSON.stringify(baseline)]);
+ const changed={...old,title:'Source new title '+randomUUID().slice(0,8),submissionId:receipt.id,sourceSnapshot:baseline};
+ await observe(pool,changed);
+ const alert=(await request('/admin/api/feed-changes',undefined,true)).body.items.find(x=>x.submissionId===receipt.id);
+ const edited=await request('/admin/api/submissions/'+receipt.id+'/edit',{revision:alert.submissionRevision,event:{priceAmount:'15'}},true);assert.equal(edited.status,200);
+ assert.equal((await request('/admin/api/feed-changes/'+alert.id+'/apply',{submissionRevision:alert.submissionRevision},true)).status,409);
+ const current=(await request('/admin/api/feed-changes',undefined,true)).body.items.find(x=>x.id===alert.id);
+ assert.equal((await request('/admin/api/feed-changes/'+alert.id+'/dismiss',{submissionRevision:current.submissionRevision},true)).status,200);
+ const saved=(await db.query('SELECT payload,source_snapshot FROM event_submissions WHERE id=$1',[receipt.id])).rows[0];
+ assert.equal(saved.payload.event.title,body.event.title);assert.equal(saved.payload.event.priceAmount,'15');
+ await observe(pool,{...changed,sourceSnapshot:saved.source_snapshot});
+ assert.equal((await request('/admin/api/feed-changes',undefined,true)).body.items.filter(x=>x.id===alert.id).length,0);
+});
+
+test('a source change that reappears after reverting reopens its alert',async()=>{
+ const {snapshot,observe}=require('../services/feedChanges');const body=event();const item=await submit(body);
+ const source={title:body.event.title,schedule:body.event.schedule,venue:'Open Studio',city:'Rexburg'};
+ const baseline=snapshot(source),changed={...source,title:'Reappearing source title',submissionId:item.id,sourceSnapshot:baseline};
+ await observe(pool,changed);await observe(pool,{...source,submissionId:item.id,sourceSnapshot:baseline});
+ assert.equal((await db.query("SELECT status FROM feed_changes WHERE submission_id=$1",[item.id])).rows[0].status,'RESOLVED');
+ await observe(pool,changed);
+ const rows=(await db.query('SELECT status FROM feed_changes WHERE submission_id=$1',[item.id])).rows;
+ assert.equal(rows.length,1);assert.equal(rows[0].status,'OPEN');
 });

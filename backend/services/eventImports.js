@@ -218,7 +218,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
         const ids = feeds.flatMap(feed => feed.items.map(item => item.id));
         if (!ids.length) return feeds;
         const { rows } = await pool.query(
-            'SELECT client_request_id AS id, status, payload, auto_publish_blocked FROM event_submissions WHERE client_request_id=ANY($1::uuid[])',
+            'SELECT client_request_id AS id, id AS submission_id,status, payload, request_payload,source_snapshot,auto_publish_blocked FROM event_submissions WHERE client_request_id=ANY($1::uuid[])',
             [ids]
         );
         const imported = new Map(rows.map(row => [row.id, row]));
@@ -233,7 +233,7 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
                 const old = previous.payload.event;
                 const changed = item.schedule && ['startDate', 'endDate', 'startTime', 'endTime', 'allDay']
                     .some(key => (old.schedule?.[key] ?? null) !== (item.schedule[key] ?? null));
-                return { ...item, queuedStatus: previous.status, autoPublishBlocked:previous.auto_publish_blocked,
+                return { ...item, submissionId:previous.submission_id,sourceSnapshot:previous.source_snapshot,requestPayload:previous.request_payload,storedPayload:previous.payload,queuedStatus: previous.status, autoPublishBlocked:previous.auto_publish_blocked,
                     issue: item.issue || (changed || old.title !== item.title ? 'Source details changed. Review the existing submission.' : null) };
             });
             feed.hidden = count - feed.items.length;
@@ -263,7 +263,9 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
         if (local.startsAt !== original.startsAt || local.endsAt !== original.endsAt) {
             throw new ReviewError(400, 'IMPORT_VENUE_TIME_ZONE', 'Choose a venue in the event’s local time zone.');
         }
-        return submitEvent(pool, parsed.data, clock(),{sourceKind:'FEED'});
+        const receipt=await submitEvent(pool, parsed.data, clock(),{sourceKind:'FEED'});
+        if(receipt.created)await pool.query('UPDATE event_submissions SET source_snapshot=$2::jsonb WHERE id=$1',[receipt.item.id,JSON.stringify(require('./feedChanges').snapshot(item))]);
+        return receipt;
     }
     function importEvent(feed, item, categoryIds) {
         return {
@@ -305,6 +307,9 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
         const budget = {remaining:4};
         for (const feed of feeds) {
             for (const item of feed.items) {
+                if(item.submissionId && ['PENDING','APPROVED'].includes(item.queuedStatus)){
+                    if(await require('./feedChanges').observe(pool,item))continue;
+                }
                 if (item.queuedStatus === 'APPROVED' || item.queuedStatus === 'REJECTED' || item.autoPublishBlocked) continue;
                 if (item.issue && item.issue !== 'Missing or unsupported schedule') continue;
                 if (!item.schedule || item.issue === 'Missing or unsupported schedule' || (!item.venue && !item.venueName && item.latitude == null)) {

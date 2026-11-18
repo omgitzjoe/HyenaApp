@@ -1,6 +1,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 let authGeneration=0;
+const bulkSelection=new Map();
 let csrf='',status='PENDING',rows=[],nextCursor=null,selectedId=null,busy=false,categoryNames=new Map();
 function notice(message='',success=false){$('notice').textContent=message;$('notice').classList.toggle('success',success);}
 function element(tag,text,className){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(className)node.className=className;return node;}
@@ -11,7 +12,7 @@ async function api(path,options={}){
     if(!response.ok){if(response.status===401&&path!=='/admin/api/login'&&generation===authGeneration)showLogin();throw Error(data.error?.message||'Request failed.');}
     return data;
 }
-function showLogin(){authGeneration++;csrf='';rows=[];selectedId=null;$('review-view').hidden=true;$('account').hidden=true;$('login-view').hidden=false;$('queue').replaceChildren();$('detail').replaceChildren();$('imports').replaceChildren();}
+function showLogin(){bulkSelection.clear();authGeneration++;csrf='';rows=[];selectedId=null;$('review-view').hidden=true;$('account').hidden=true;$('login-view').hidden=false;$('queue').replaceChildren();$('detail').replaceChildren();$('imports').replaceChildren();}
 function showReview(session){authGeneration++;csrf=session.csrfToken;$('username').textContent=session.username;$('account').hidden=false;$('login-view').hidden=true;$('review-view').hidden=false;}
 async function referenceData(){
     try{const categories=await api('/api/v1/categories');categoryNames=new Map(categories.items.map(x=>[x.id,x.name]));}
@@ -43,11 +44,18 @@ function renderQueue(){
         if(extra)button.append(element('small',extra));
         if(row.past || !row.listingActive)button.append(element('span',row.past?'Past event':'Withdrawn','tag archived'));
         if(row.duplicateOf)button.append(element('span','Duplicate','tag archived'));
-        button.addEventListener('click',()=>{if(!busy)select(row.id);});$('queue').append(button);
+        button.addEventListener('click',()=>{if(!busy)select(row.id);});
+        const wrap=element('div',undefined,'queue-row');
+        if(status!=='REJECTED'){
+            const checkbox=element('input');checkbox.type='checkbox';checkbox.checked=bulkSelection.has(row.id);checkbox.setAttribute('aria-label','Select '+event.title);
+            checkbox.addEventListener('change',()=>{if(checkbox.checked)bulkSelection.set(row.id,row.revision);else bulkSelection.delete(row.id);renderBulk();});wrap.append(checkbox);
+        }
+        wrap.append(button);$('queue').append(wrap);
     });
 }
 let queueRequest=0,queueController;
 async function loadQueue(append=false){
+    if(!append){bulkSelection.clear();renderBulk();}
     const request=++queueRequest,generation=authGeneration;
     queueController?.abort();queueController=new AbortController();
     busy=true;$('refresh').disabled=true;$('more').disabled=true;
@@ -153,18 +161,18 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
     if(row.status==='PENDING')buttons.append(save,reject);
     actions.append(buttons);detail.append(actions);
 }
-$('login-form').addEventListener('submit',async event=>{event.preventDefault();$('login-button').disabled=true;notice();try{const session=await api('/admin/api/login',{method:'POST',body:JSON.stringify({username:$('login-username').value,password:$('login-password').value})});$('login-password').value='';showReview(session);await referenceData();await loadQueue();await loadReports();}catch(error){notice(error.message);}finally{$('login-button').disabled=false;}});
+$('login-form').addEventListener('submit',async event=>{event.preventDefault();$('login-button').disabled=true;notice();try{const session=await api('/admin/api/login',{method:'POST',body:JSON.stringify({username:$('login-username').value,password:$('login-password').value})});$('login-password').value='';showReview(session);await referenceData();await loadQueue();await loadReports();await loadFeedChanges();}catch(error){notice(error.message);}finally{$('login-button').disabled=false;}});
 $('logout').addEventListener('click',async()=>{try{await api('/admin/api/logout',{method:'POST',body:'{}'});showLogin();notice('Signed out.',true);}catch(error){notice(error.message);}});
-$('refresh').addEventListener('click',async()=>{notice();await referenceData();await loadQueue();await loadReports();});$('more').addEventListener('click',()=>loadQueue(true));
+$('refresh').addEventListener('click',async()=>{notice();await referenceData();await loadQueue();await loadReports();await loadFeedChanges();});$('more').addEventListener('click',()=>loadQueue(true));
 document.querySelectorAll('[data-status]').forEach(button=>button.addEventListener('click',()=>{status=button.dataset.status;selectedId=null;document.querySelectorAll('[data-status]').forEach(x=>x.classList.toggle('active',x===button));notice();loadQueue();}));
-(async()=>{const generation=authGeneration;try{const session=await api('/admin/api/session');if(generation!==authGeneration)return;showReview(session);await referenceData();await loadQueue();await loadReports();}catch(error){if(generation!==authGeneration)return;showLogin();if(!/Sign in|again/.test(error.message))notice(error.message);}})();
+(async()=>{const generation=authGeneration;try{const session=await api('/admin/api/session');if(generation!==authGeneration)return;showReview(session);await referenceData();await loadQueue();await loadReports();await loadFeedChanges();}catch(error){if(generation!==authGeneration)return;showLogin();if(!/Sign in|again/.test(error.message))notice(error.message);}})();
 
 async function loadReports(){
  const generation=authGeneration;
  try { const data=await api('/admin/api/reports');if(generation!==authGeneration)return;
   $('reports').replaceChildren();
   if(!data.items.length)$('reports').append(element('p','No open corrections.'));
-  data.items.forEach(report=>{const card=element('div',undefined,'queue-item');card.append(element('strong',report.title),element('p',report.businessName+' · '+report.reason.replaceAll('_',' ')),element('p',report.details||'No additional details'),element('small','Event ID: '+report.experienceId));const resolve=element('button','Mark reviewed and resolve');resolve.addEventListener('click',async()=>{resolve.disabled=true;try{await api('/admin/api/reports/'+report.id+'/resolve',{method:'POST',body:'{}'});await loadReports();}catch(error){notice(error.message);resolve.disabled=false;}});card.append(resolve);$('reports').append(card);});
+  data.items.forEach(report=>{const card=element('div',undefined,'queue-item');card.append(element('strong',report.title),element('p',report.businessName+' · '+report.reason.replaceAll('_',' ')),element('p',report.details||'No additional details'),element('small','Event ID: '+report.experienceId));const resolve=element('button','Mark reviewed and resolve');resolve.addEventListener('click',async()=>{resolve.disabled=true;try{await api('/admin/api/reports/'+report.id+'/resolve',{method:'POST',body:'{}'});await loadReports();await loadFeedChanges();}catch(error){notice(error.message);resolve.disabled=false;}});card.append(resolve);$('reports').append(card);});
  }catch(error){notice(error.message);}
 }
 $('reports-refresh').addEventListener('click',loadReports);
@@ -292,6 +300,7 @@ $('imports-sync').addEventListener('click', async () => {
         notice((result.accepted || 0) + ' feed event(s) accepted. ' + result.queued + ' added to Pending.' + (result.duplicates?' '+result.duplicates+' duplicate(s) skipped.':'') + detail + unavailable, true);
         await loadQueue();
         await previewImports();
+        await loadFeedChanges();
     } catch (error) { notice(error.message); }
     finally { button.disabled = false; }
 });
@@ -404,3 +413,52 @@ function venueEditor(parent, initial = {}) {
 let searchTimer;
 $('listing-search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadQueue(),300);});
 for(const id of ['listing-origin','include-past'])$(id).addEventListener('change',()=>loadQueue());
+
+function renderBulk(){
+    $('selection-count').textContent=bulkSelection.size+' selected';$('bulk-editor').hidden=!bulkSelection.size;
+    $('select-visible').disabled=status==='REJECTED';
+    if(bulkSelection.size && !$('bulk-categories').children.length){
+        for(const [id,name] of categoryNames){const label=element('label',name),input=element('input');input.type='checkbox';input.value=id;label.prepend(input);$('bulk-categories').append(label);}
+    }
+}
+$('select-visible').addEventListener('click',()=>{if(status==='REJECTED')return;rows.slice(0,50).forEach(row=>bulkSelection.set(row.id,row.revision));renderQueue();renderBulk();});
+$('clear-selection').addEventListener('click',()=>{bulkSelection.clear();renderQueue();renderBulk();});
+$('bulk-save').addEventListener('click',async()=>{
+    if(busy)return;
+    const event={};
+    if($('bulk-use-categories').checked)event.categoryIds=[...$('bulk-categories').querySelectorAll('input:checked')].map(input=>input.value);
+    if($('bulk-use-price').checked)event.priceAmount=$('bulk-price').value.trim() || null;
+    if(!Object.keys(event).length){notice('Choose categories or price to apply.');return;}
+    if(!bulkSelection.size || bulkSelection.size>50){notice('Select between 1 and 50 listings.');return;}
+    busy=true;$('bulk-save').disabled=true;
+    try{
+        const entries=[...bulkSelection].map(([id,revision])=>({id,revision}));
+        await api('/admin/api/submissions/bulk-edit',{method:'POST',body:JSON.stringify({entries,event})});
+        notice('Updated '+entries.length+' listings.',true);busy=false;await loadQueue();
+    }catch(error){notice(error.message);}finally{busy=false;$('bulk-save').disabled=false;}
+});
+function sourceSummary(value){
+    const s=value.schedule || {},v=value.venue || {};
+    return [value.title,[s.startDate,s.allDay?'All day':s.startTime,s.endTime].filter(Boolean).join(' · '),[v.name,v.address,v.city].filter(Boolean).join(', ')].filter(Boolean).join('\n');
+}
+async function loadFeedChanges(){
+    const generation=authGeneration;
+    try{
+        const data=await api('/admin/api/feed-changes');if(generation!==authGeneration)return;
+        $('feed-change-count').textContent=String(data.items.length);$('feed-changes').replaceChildren();
+        if(data.items.length)$('feed-changes-panel').open=true;
+        if(!data.items.length)$('feed-changes').append(element('p','No source changes need review.'));
+        for(const item of data.items){
+            const card=element('section',undefined,'feed-change');card.append(element('h3',item.kind==='CANCELLATION'?'Source cancellation':item.kind==='RESCHEDULE'?'Schedule changed':'Source details changed'));
+            card.append(fact('Current source baseline',sourceSummary(item.previous)),fact('Latest source update',sourceSummary(item.incoming)));
+            const apply=element('button',item.kind==='CANCELLATION'?'Withdraw canceled event':'Apply source update','primary'),dismiss=element('button','Dismiss alert');
+            for(const [button,action] of [[apply,'apply'],[dismiss,'dismiss']])button.addEventListener('click',async()=>{
+                if(busy)return;busy=true;apply.disabled=dismiss.disabled=true;
+                try{await api('/admin/api/feed-changes/'+item.id+'/'+action,{method:'POST',body:JSON.stringify({submissionRevision:item.submissionRevision})});notice(action==='apply'?'Source update applied.':'Source alert dismissed.',true);busy=false;await loadQueue();await loadFeedChanges();}
+                catch(error){notice(error.message);}finally{busy=false;apply.disabled=dismiss.disabled=false;}
+            });
+            const buttons=element('div',undefined,'button-row');buttons.append(apply,dismiss);card.append(buttons);$('feed-changes').append(card);
+        }
+    }catch(error){notice(error.message);}
+}
+$('feed-changes-refresh').addEventListener('click',loadFeedChanges);

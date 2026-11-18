@@ -34,10 +34,11 @@ async function submitEvent(pool,data,now,{sourceKind='USER'}={}) {
         ON CONFLICT(client_request_id) DO NOTHING RETURNING id,status,created_at AS "createdAt"`,[randomUUID(),data.clientRequestId,JSON.stringify(data.payload),sourceKind]);
     return result.rows.length?{item:result.rows[0],created:true}:existingReceipt(pool,data.clientRequestId,data.payload);
 }
-async function reviewSubmission(pool,id,action,username,options={},now=new Date()) {
-    const client=await pool.connect();let started=false,releaseError;
+async function reviewSubmission(pool,id,action,username,options={},now=new Date(),transactionClient=null) {
+    const owns=!transactionClient;
+    const client=transactionClient || await pool.connect();let started=false,releaseError;
     try {
-        await client.query('BEGIN');started=true;
+        if(owns)await client.query('BEGIN');started=true;
         const result=await client.query('SELECT * FROM event_submissions WHERE id=$1 FOR UPDATE',[id]);
         if(!result.rows.length) throw new ReviewError(404,'SUBMISSION_NOT_FOUND','Submission not found.');
         const row=result.rows[0];
@@ -46,7 +47,7 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
         if(editing && !['PENDING','APPROVED'].includes(row.status))throw new ReviewError(409,'EDIT_NOT_ALLOWED','Restore this entry to Pending before editing.');
         if (action === 'PENDING') {
             if (row.status === 'PENDING') {
-                await client.query('COMMIT');
+                if(owns)await client.query('COMMIT');
                 started = false;
                 return { id: row.id, status: 'PENDING', experienceId: null };
             }
@@ -65,17 +66,17 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
                  published_experience_id=NULL, reviewed_by=NULL, reviewed_at=NULL, auto_publish_blocked=TRUE, revision=revision+1,duplicate_of=NULL WHERE id=$1`,
                 [id, JSON.stringify(payload)]
             );
-            await client.query('COMMIT');
+            if(owns)await client.query('COMMIT');
             started = false;
             return { id, status: 'PENDING', experienceId: null };
         }
         if (options.automatic && row.auto_publish_blocked) {
-            await client.query('COMMIT');
+            if(owns)await client.query('COMMIT');
             started = false;
             return {id,status:row.status,experienceId:row.published_experience_id};
         }
         if(row.status!=='PENDING' && !editing) {
-            if(row.status===action) {await client.query('COMMIT');started=false;return {id:row.id,status:row.status,experienceId:row.published_experience_id};}
+            if(row.status===action) {if(owns)await client.query('COMMIT');started=false;return {id:row.id,status:row.status,experienceId:row.published_experience_id};}
             throw new ReviewError(409,'ALREADY_REVIEWED','This submission has already been reviewed. Reload the queue.');
         }
         if (options.venue) row.payload = {...row.payload,venue:options.venue};
@@ -134,7 +135,7 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
                         await client.query('DELETE FROM businesses WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM experiences WHERE business_id=$1)',[createdBusinessId]);
                     }
                     await client.query(`UPDATE event_submissions SET status='REJECTED',published_experience_id=NULL,duplicate_of=$2,reviewed_by=$3,reviewed_at=CURRENT_TIMESTAMP,payload=$4::jsonb,revision=revision+1 WHERE id=$1`,[id,published.id,username,JSON.stringify(row.payload)]);
-                    await client.query('COMMIT');started=false;
+                    if(owns)await client.query('COMMIT');started=false;
                     return {id,status:'REJECTED',experienceId:null,duplicateOf:published.id};
                 }
                 experienceId=published.id;
@@ -145,11 +146,11 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
             reviewed_by=$4,reviewed_at=$5,payload=$6::jsonb,revision=revision+1,
             auto_publish_blocked=auto_publish_blocked OR $7,duplicate_of=NULL WHERE id=$1`,
             [id,status,experienceId,status==='PENDING'?null:username,status==='PENDING'?null:now,JSON.stringify(row.payload),editing]);
-        await client.query('COMMIT');started=false;
+        if(owns)await client.query('COMMIT');started=false;
         return {id,status,experienceId};
     } catch(error) {
-        if(started){try{await client.query('ROLLBACK');}catch(rollbackError){releaseError=rollbackError;}}
+        if(started && owns){try{await client.query('ROLLBACK');}catch(rollbackError){releaseError=rollbackError;}}
         throw error;
-    } finally {client.release(releaseError);}
+    } finally {if(owns)client.release(releaseError);}
 }
 module.exports={submitEvent,reviewSubmission};

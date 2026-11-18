@@ -21,6 +21,9 @@ interface HyenaApi {
         @Query("limit") limit: Int = 20
     ): ExperienceResponse
 
+    @GET("api/v1/experiences/saved-refresh")
+    suspend fun refreshSaved(@Query("ids") ids: String): SavedRefreshResponse
+
     @GET("api/v1/businesses")
     suspend fun getBusinesses(
         @Query("q") query: String = "",
@@ -43,3 +46,5 @@ interface HyenaApi {
 
 data class EventReportRequest(val experienceId: String, val reason: String, val details: String)
 data class EventReportResponse(val id: String, val status: String)
+
+data class SavedRefreshResponse(val items: List<ExperienceDto>, val unavailableIds: List<String>)

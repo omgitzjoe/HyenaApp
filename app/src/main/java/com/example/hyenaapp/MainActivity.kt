@@ -16,6 +16,7 @@ import com.example.hyenaapp.ui.theme.HyenaAppTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.hyenaapp.reminders.SavedEventSyncJob.ensureScheduled(this)
         enableEdgeToEdge()
         val preferencesStore = AppPreferencesStore(this)
         setContent {

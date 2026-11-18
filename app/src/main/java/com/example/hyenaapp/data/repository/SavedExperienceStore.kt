@@ -7,6 +7,8 @@ import com.google.gson.reflect.TypeToken
 import java.io.IOException
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** Local snapshots; independent of Explore filters and available offline. */
@@ -16,20 +18,24 @@ class SavedExperienceStore(context: Context) {
     }
     private val preferences = context.applicationContext.getSharedPreferences("saved_experiences", Context.MODE_PRIVATE)
 
-    suspend fun load(): List<Experience> = withContext(Dispatchers.IO) {
-        val previous = SavedExperienceCodec.decode(preferences.getString("items", null))
-        val retained = previous.filterNot { it.id in retiredDemoIds || isExpiredSavedSnapshot(it) }
-        if (retained.size != previous.size && !preferences.edit().putString("items", SavedExperienceCodec.encode(retained)).commit()) {
-            throw IOException("Unable to clean retired demonstration saves")
+    private fun read(): List<Experience> = SavedExperienceCodec.decode(preferences.getString("items", null)).filterNot { it.id in retiredDemoIds }
+    private fun write(items: List<Experience>) {
+        if (!preferences.edit().putString("items", SavedExperienceCodec.encode(items)).commit()) throw IOException("Unable to persist saved experiences")
+    }
+    suspend fun load(): List<Experience> = withContext(Dispatchers.IO) { lock.withLock { read() } }
+    suspend fun save(items: List<Experience>) = withContext(Dispatchers.IO) { lock.withLock { write(items) } }
+    suspend fun update(transform: (List<Experience>) -> List<Experience>): List<Experience> = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val before = read()
+            val after = transform(before)
+            if (before != after) write(after)
+            after
         }
-        retained
+    }
+    companion object {
+        private val lock = Mutex()
     }
 
-    suspend fun save(items: List<Experience>) = withContext(Dispatchers.IO) {
-        if (!preferences.edit().putString("items", SavedExperienceCodec.encode(items)).commit()) {
-            throw IOException("Unable to persist saved experiences")
-        }
-    }
 }
 
 internal object SavedExperienceCodec {

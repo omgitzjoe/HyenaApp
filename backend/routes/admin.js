@@ -143,6 +143,28 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
         try {const result=await pool.query("UPDATE event_reports SET status='RESOLVED',reviewed_at=CURRENT_TIMESTAMP,reviewed_by=$2 WHERE id=$1 AND status='OPEN' RETURNING id",[req.params.id,req.admin.username]);if(!result.rows.length)return res.status(404).json({error:{message:'Report is already resolved or unavailable.'}});res.json({status:'RESOLVED'});}
         catch(error){logger.error('Report resolution failed:',error.message);res.status(500).json({error:{message:'Unable to resolve report.'}});}
     });
+    router.post('/api/submissions/bulk-edit',async(req,res)=>{
+        const schema=z.strictObject({entries:z.array(z.strictObject({id:z.uuid(),revision:z.number().int().min(0)})).min(1).max(50).refine(values=>new Set(values.map(v=>v.id)).size===values.length),event:z.strictObject({
+            categoryIds:z.array(z.uuid()).max(20).refine(ids=>new Set(ids).size===ids.length).optional(),
+            priceAmount:z.string().regex(/^(0|[1-9]\d{0,7})(\.\d{1,2})?$/).nullable().optional()
+        }).refine(value=>Object.keys(value).length>0)});
+        const parsed=schema.safeParse(req.body);
+        if(!parsed.success)return res.status(400).json({error:{message:'Select up to 50 entries and a valid category or price change.'}});
+        try{res.json({items:await require('../services/adminBulk').bulkEdit(pool,parsed.data.entries,parsed.data.event,req.admin.username,clock())});}
+        catch(error){logger.error('Bulk edit failed:',error.message);res.status(error instanceof ReviewError?error.status:500).json({error:{message:error instanceof ReviewError?error.message:'Unable to save the batch. No changes were applied.'}});}
+    });
+    router.get('/api/feed-changes',async(req,res)=>{
+        try{
+            const result=await pool.query(`SELECT c.id,c.kind,c.previous,c.incoming,c.last_seen_at AS "lastSeenAt",s.id AS "submissionId",s.revision AS "submissionRevision",s.status AS "submissionStatus" FROM feed_changes c JOIN event_submissions s ON s.id=c.submission_id WHERE c.status='OPEN' ORDER BY c.last_seen_at DESC,c.id LIMIT 100`);
+            res.json({items:result.rows});
+        }catch(error){logger.error('Feed alerts failed:',error.message);res.status(503).json({error:{message:'Unable to load source updates.'}});}
+    });
+    for(const action of ['apply','dismiss'])router.post('/api/feed-changes/:id/'+action,async(req,res)=>{
+        const id=z.uuid().safeParse(req.params.id),body=z.strictObject({submissionRevision:z.number().int().min(0)}).safeParse(req.body);
+        if(!id.success || !body.success)return res.status(400).json({error:{message:'Refresh this source update before reviewing.'}});
+        try{res.json({item:await require('../services/feedChanges').resolveChange(pool,id.data,action,req.admin.username,body.data,venueLookup,clock())});}
+        catch(error){logger.error('Feed update failed:',error.message);res.status(error instanceof ReviewError?error.status:500).json({error:{message:error instanceof ReviewError?error.message:'Unable to resolve this source update.'}});}
+    });
     router.get('/api/session',(req,res)=>res.json({username:req.admin.username,csrfToken:req.admin.csrfToken}));
     router.post('/api/logout',async(req,res)=>{
         try{await pool.query('DELETE FROM admin_sessions WHERE token_hash=$1',[req.admin.tokenHash]);res.clearCookie(cookieName,{httpOnly:true,sameSite:'strict',secure:env.NODE_ENV==='production',path:'/admin'});res.json({status:'signed-out'});}

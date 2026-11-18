@@ -27,7 +27,9 @@ object ExperienceRepository {
             maxPrice = filters.maxPrice.takeIf { filters.priceMode == "max" },
             date = filters.date.takeIf { window == "date" },
             limit = limit
-        ).items.map { dto ->
+        ).items.map { toExperience(it, timeZone) }
+    }
+    internal fun toExperience(dto: com.example.hyenaapp.data.remote.ExperienceDto, timeZone: String = ZoneId.systemDefault().id): Experience =
             Experience(
                 id = dto.id,
                 title = dto.title,
@@ -40,8 +42,6 @@ object ExperienceRepository {
                 distanceMiles = dto.distanceMiles, latitude = dto.latitude, longitude = dto.longitude,
                 categories = dto.categories.ifEmpty { listOf(com.example.hyenaapp.domain.model.EventCategory("other", "Other", "other")) }, priceLabel = priceLabel(dto.priceAmount, "USD")
             )
-        }
-    }
 }
 
 internal fun formatStart(startsAt: String, zone: ZoneId): String = Instant.parse(startsAt).atZone(zone).format(DateTimeFormatter.ofPattern("EEE, MMM d · h:mm a", Locale.US))

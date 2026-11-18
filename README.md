@@ -53,10 +53,34 @@ retry identity after edits. Review notes have been removed; review ownership and
 The admin workspace prioritizes community submissions, supports event/venue search and source
 filters, and hides past/withdrawn listings unless the archive checkbox is enabled. Public
 All dates, historical date searches, and event detail endpoints exclude ended events. Ended
-records remain stored for feed identity and review history. Ended one-time local snapshots expire on load; recurring saves and other device preferences are preserved.
+records remain stored for feed identity and review history. Saved snapshots are reconciled with the server before unavailable events are removed. Offline failures preserve local saves and reminder preferences.
 
 Feed preview shows only newly discovered IDs. Internal sync still revisits eligible Pending
 entries. Publication checks normalized event titles, occurrence start and venue identity;
 clear automatic duplicates are rejected with a link to the canonical event. Different start
 times and venues remain separate. Migration 008 also withdraws existing exact duplicates at
 the same venue and start, preserving their records and blacklist identities.
+
+
+## Saved refresh, feed updates and bulk editing
+
+`GET /api/v1/experiences/saved-refresh?ids=...` refreshes up to 100 saved IDs independently
+of discovery radius and filters. Successful responses identify unavailable events explicitly;
+network failures never erase saves. Android refreshes on startup/foreground, opening Saved,
+manual refresh and periodically while foregrounded. A persisted native JobScheduler job
+requests background checks about every 15 minutes, subject to Android scheduling and network
+constraints. The reminder receiver also attempts a bounded refresh before delivery. Updated
+start times replace old alarms, unavailable events cancel alarms/posted notifications, and
+sent fingerprints prevent repeated delivery of the same reminder. Exact real-time source
+updates cannot be guaranteed offline or while Android delays background work.
+
+Migration 009 stores feed baselines separately from admin edits and records durable source
+change alerts. Source cancellations, reschedules and venue/title changes appear in Feed
+updates, never in the new-event preview. Applying a source update preserves price/category
+overrides; cancellation withdraws the published event and retains the rejected feed ID.
+Dismissal keeps the admin version and acknowledges that source revision. Repeated unchanged
+alerts are deduplicated, superseded alerts close, and stale actions are rejected.
+
+The admin bulk editor supports up to 50 Pending/Approved entries per batch. Category and
+price changes are opt-in and support clearing values or setting Free. Every selected revision
+is checked inside one transaction; any conflict or invalid entry rolls back the whole batch.

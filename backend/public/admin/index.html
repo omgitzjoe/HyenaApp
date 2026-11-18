@@ -14,6 +14,12 @@
 <label>Source<select id="listing-origin"><option value="all">All sources · Community first</option><option value="USER">Community submissions</option><option value="FEED">Feed imports</option></select></label>
 <label class="archive-toggle"><input id="include-past" type="checkbox">Include past and withdrawn events</label>
 </div>
+<div class="bulk-toolbar"><button id="select-visible" type="button">Select up to 50 listings</button><button id="clear-selection" type="button">Clear selection</button><span id="selection-count">0 selected</span></div>
+<fieldset id="bulk-editor" hidden><legend>Bulk edit selected listings</legend>
+<label><input id="bulk-use-categories" type="checkbox">Replace categories</label><div id="bulk-categories" class="category-options"></div>
+<label><input id="bulk-use-price" type="checkbox">Set price</label><label>Bulk price in USD (blank = unknown; 0 = Free)<input id="bulk-price" type="number" min="0" step="0.01"></label>
+<button id="bulk-save" type="button" class="primary">Apply to selected listings</button><p class="muted">Only checked settings change. A stale entry stops the entire batch.</p></fieldset>
+<details id="feed-changes-panel" class="queue-panel admin-tools"><summary>Feed updates <span id="feed-change-count">0</span></summary><p>Review cancellations, schedule changes, and venue changes to imported events.</p><button id="feed-changes-refresh">Refresh updates</button><div id="feed-changes"></div></details>
 <div class="workspace"><aside class="queue-panel"><div class="queue-heading"><h2 id="queue-heading">Pending submissions</h2><span id="queue-count"></span></div><div id="queue" aria-live="polite"></div><button id="more" hidden>Load more</button></aside><article class="detail-panel" id="detail"><div class="empty-state"><span class="empty-mark">↗</span><h2>Pick a submission</h2><p>The event, venue, and schedule will appear here.</p></div></article></div>
 <div class="secondary-tools"><details class="queue-panel admin-tools"><summary>Community corrections</summary><p>Investigate and correct event details through the curator tools before resolving. Reports never change listings automatically.</p><button id="reports-refresh">Refresh reports</button><div id="reports"></div></details>
 <details class="queue-panel admin-tools"><summary>Discover new feed events</summary>
