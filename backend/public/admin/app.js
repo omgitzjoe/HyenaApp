@@ -439,8 +439,13 @@ $('bulk-save').addEventListener('click',async()=>{
 });
 function sourceSummary(value){
     const s=value.schedule || {},v=value.venue || {};
-    return [value.title,[s.startDate,s.allDay?'All day':s.startTime,s.endTime].filter(Boolean).join(' · '),[v.name,v.address,v.city].filter(Boolean).join(', ')].filter(Boolean).join('\n');
+    const clock=time=>{const match=/^(\d{2}):(\d{2})/.exec(time || '');if(!match)return '';const hour=Number(match[1]);return (hour%12 || 12)+':'+match[2]+(hour<12?' AM':' PM');};
+    const lastDate=s.endDate && s.endDate!==s.startDate?s.endDate:'';
+    const when=s.allDay?[s.startDate,lastDate?'through '+lastDate:'','All day'].filter(Boolean).join(' · ')
+        :[s.startDate,clock(s.startTime),lastDate?'through '+lastDate:'',clock(s.endTime)].filter(Boolean).join(' · ');
+    return [value.title,when,[v.name,v.address,v.city].filter(Boolean).join(', ')].filter(Boolean).join('\n');
 }
+
 async function loadFeedChanges(){
     const generation=authGeneration;
     try{
