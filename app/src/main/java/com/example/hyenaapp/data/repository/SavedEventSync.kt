@@ -21,7 +21,7 @@ object SavedEventSync {
         val snapshot = store.load()
         val fresh = mutableListOf<Experience>()
         val unavailable = mutableSetOf<String>()
-        for (batch in snapshot.chunked(100)) {
+        for (batch in snapshot.filterNot { it.id.startsWith(DEVICE_CALENDAR_ID_PREFIX) }.chunked(100)) {
             try {
                 val response = withTimeoutOrNull(8_000) { ApiClient.api.refreshSaved(batch.joinToString(",") { it.id }) } ?: continue
                 val requested = batch.map { it.id }.toSet()

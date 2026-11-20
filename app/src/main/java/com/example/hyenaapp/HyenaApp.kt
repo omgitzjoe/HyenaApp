@@ -6,6 +6,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
 import com.example.hyenaapp.data.repository.SavedEventSync
+import com.example.hyenaapp.data.repository.calendarExperiences
 
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
@@ -46,6 +47,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -62,10 +64,12 @@ import com.example.hyenaapp.ui.components.LocationControls
 import com.example.hyenaapp.ui.details.ExperienceDetailsScreen
 import com.example.hyenaapp.ui.home.HomeScreen
 import com.example.hyenaapp.ui.submit.SubmitEventScreen
+import com.example.hyenaapp.ui.saved.CalendarImport
 import com.example.hyenaapp.ui.saved.ReminderControls
 import com.example.hyenaapp.ui.saved.SavedScreen
 import java.time.ZoneId
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,8 +84,10 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
     var savesReady by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var savedError by remember { mutableStateOf<String?>(null) }
+    var calendarImportStatus by rememberSaveable { mutableStateOf<String?>(null) }
     var savedReloadKey by remember { mutableStateOf(0) }
     LaunchedEffect(savedStore, savedReloadKey) {
+        snapshotFlow { saving }.first { !it }
         savesLoading = true
         savesReady = false
         try {
@@ -268,6 +274,36 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
                             reminderSettings = {
                                 androidx.compose.material3.TextButton(onClick = { savedReloadKey++ }, enabled = !savesLoading) { androidx.compose.material3.Text("Refresh saved events") }
                                 ReminderControls(reminders, savedExperiences, enabled = savingEnabled)
+                                CalendarImport(savingEnabled, calendarImportStatus) { calendar ->
+                                    saving = true
+                                    calendarImportStatus = "Importing calendar events…"
+                                    scope.launch {
+                                        try {
+                                            val events = calendarExperiences(context, calendar)
+                                            var added = 0
+                                            val updated = savedStore.update { current ->
+                                                val savedIds = current.map { it.id }.toHashSet()
+                                                val newEvents = events.filter { savedIds.add(it.id) }
+                                                added = newEvents.size
+                                                current + newEvents
+                                            }
+                                            savedExperiences = updated
+                                            calendarImportStatus = when {
+                                                events.isEmpty() -> "No upcoming events found in this calendar."
+                                                added == 0 -> "These calendar events are already saved."
+                                                added == 1 -> "Imported 1 event into Saved."
+                                                else -> "Imported $added events into Saved."
+                                            }
+                                            reminders.updateSaved(updated)
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (_: Exception) {
+                                            calendarImportStatus = "Couldn't complete the calendar import. Check calendar access and try again."
+                                        } finally {
+                                            saving = false
+                                        }
+                                    }
+                                }
                             }
                         )
                     }

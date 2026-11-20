@@ -282,8 +282,9 @@ async function previewImports() {
             section.append(element('h3', feed.name));
             if (feed.note) section.append(element('p', feed.note));
             section.append(element('p', feed.error || (feed.records
-                ? feed.format + ' · ' + feed.records + ' records fetched · ' + feed.items.length + ' in preview · ' + (feed.hidden || 0) + ' already imported or filtered'
-                : feed.format + ' · Feed returned zero event records')));
+                ? feed.records + ' events received · ' + feed.items.length + ' new in preview · ' +
+                    (feed.records - feed.items.length) + ' already imported or filtered'
+                : 'The source returned no events.')));
             feed.items.forEach(item => section.append(renderImport(feed, item)));
             $('imports').append(section);
         }
