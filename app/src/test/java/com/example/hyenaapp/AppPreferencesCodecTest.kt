@@ -16,7 +16,7 @@ class AppPreferencesCodecTest {
 
     @Test
     fun roundTripRestoresThemeRadiusAndEveryAppliedFilter() {
-        val choices = AppPreferences("dark", 25, DiscoveryFilters(
+        val choices = AppPreferences("dark", 50, DiscoveryFilters(
             "Café music", listOf("00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"),
             "date", "2030-05-10", "max", "12.50"
         ))
@@ -26,7 +26,7 @@ class AppPreferencesCodecTest {
 
     @Test
     fun badDatesAndUnsupportedValuesCannotBreakTheNextSearch() {
-        val restored = AppPreferencesCodec.decode("""{"theme":"dark","radiusMiles":11,"filters":{"window":"date","date":"2030-02-30","priceMode":"bad","maxPrice":"-5","categoryIds":["bad",{},"00000000-0000-4000-8000-000000000001","00000000-0000-4000-8000-000000000001"]}}""")
+        val restored = AppPreferencesCodec.decode("""{"theme":"dark","radiusMiles":5,"filters":{"window":"date","date":"2030-02-30","priceMode":"bad","maxPrice":"-5","categoryIds":["bad",{},"00000000-0000-4000-8000-000000000001","00000000-0000-4000-8000-000000000001"]}}""")
         assertEquals("dark", restored.theme)
         assertEquals(10, restored.radiusMiles)
         assertEquals("today", restored.filters.window)

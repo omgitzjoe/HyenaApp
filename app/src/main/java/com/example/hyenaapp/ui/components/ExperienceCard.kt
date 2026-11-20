@@ -10,6 +10,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import java.util.Locale
 
@@ -26,7 +27,8 @@ fun ExperienceCard(
     savingEnabled: Boolean = true,
     onToggleSave: (() -> Unit)? = null,
     categories: List<EventCategory> = emptyList(),
-    priceLabel: String = ""
+    priceLabel: String = "",
+    websiteUrl: String? = null
 ) {
     Card(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -62,6 +64,16 @@ fun ExperienceCard(
             }
             if (offer.isNotBlank()) Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
                 Text(offer, Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            websiteUrl?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let { url ->
+                val uriHandler = LocalUriHandler.current
+                TextButton(onClick = {
+                    try {
+                        uriHandler.openUri(url)
+                    } catch (_: IllegalArgumentException) {
+                        // No installed app can open the website.
+                    }
+                }) { Text("Visit website") }
             }
             onToggleSave?.let { toggle ->
                 TextButton(onClick = toggle, enabled = savingEnabled, modifier = Modifier.align(Alignment.End)) {

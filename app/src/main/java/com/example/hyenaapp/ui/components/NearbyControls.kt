@@ -31,6 +31,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.hyenaapp.data.repository.NearbyLocation
+import com.example.hyenaapp.data.repository.discoveryRadiiMiles
 import kotlin.coroutines.resume
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
@@ -105,7 +106,7 @@ fun LocationControls(location: NearbyLocation?, radius: Int, message: String, on
         Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (location != null) {
             Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(5, 10, 25, 100).forEach { miles ->
+                discoveryRadiiMiles.forEach { miles ->
                     FilterChip(selected = radius == miles, onClick = { onRadius(miles) }, label = { Text("$miles mi") })
                 }
             }

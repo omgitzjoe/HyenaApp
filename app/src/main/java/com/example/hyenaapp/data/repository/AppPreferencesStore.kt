@@ -6,6 +6,8 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.time.LocalDate
 
+internal val discoveryRadiiMiles = listOf(10, 25, 50, 100)
+
 /** Device preferences only. Coordinates and event drafts are never persisted here. */
 data class AppPreferences(
     val theme: String = "light",
@@ -38,7 +40,7 @@ internal object AppPreferencesCodec {
             val date = text(f, "date")?.takeIf { runCatching { LocalDate.parse(it) }.isSuccess }
             val window = text(f, "window")?.takeIf { it in listOf("today", "tonight", "now", "tomorrow", "date", "all") } ?: "today"
             val radius = root.get("radiusMiles")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble
-                ?.takeIf { it in listOf(5.0,10.0,25.0,100.0) }?.toInt() ?: 10
+                ?.let { miles -> discoveryRadiiMiles.firstOrNull { it.toDouble() == miles } } ?: 10
             AppPreferences(
                 theme = if (text(root, "theme") == "dark") "dark" else "light",
                 radiusMiles = radius,

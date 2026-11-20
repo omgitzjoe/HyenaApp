@@ -15,6 +15,7 @@ data class Experience(
     val priceLabel: String = "",
     val hasEndTime: Boolean = true,
     val allDay: Boolean = false,
-    val scheduleKind: String? = null
+    val scheduleKind: String? = null,
+    val websiteUrl: String? = null
 )
 data class EventCategory(val id: String, val name: String, val slug: String = "")

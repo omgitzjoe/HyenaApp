@@ -122,6 +122,7 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
     eventFields.append(allDayLabel);
     const price=importField(eventFields,'Price in USD (optional; 0 = Free)',event.priceAmount ?? '','number');
     price.min='0';price.step='0.01';
+    const website=importField(eventFields,'Event website (optional)',event.sourceUrl || '','url');
     const categories=element('fieldset',undefined,'category-options');categories.append(element('legend','Categories (optional)'));
     const categoryInputs=[];
     for(const [categoryId,name] of categoryNames){
@@ -140,6 +141,7 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
         const body={revision:row.revision};
         if(action!=='reject' && price.value.trim() && !/^(0|[1-9]\d{0,7})(\.\d{1,2})?$/.test(price.value.trim())){notice('Enter a nonnegative price with up to two decimal places, or leave it blank.');price.focus();return;}
         if(action==='approve' || action==='edit') body.event={
+            sourceUrl:website.value.trim() || null,
             title:eventTitle.value,description:description.value.trim() || null,priceAmount:price.value.trim() || null,categoryIds:categoryNames.size?categoryInputs.filter(x=>x.checked).map(x=>x.value):(event.categoryIds || []),
             schedule:{...s,kind:s.kind || 'ONCE',startDate:eventDate.value,endDate:eventEndDate.value || null,
                 startTime:allDay.checked?null:eventStart.value || null,
