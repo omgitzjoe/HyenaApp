@@ -19,13 +19,13 @@
 <label><input id="bulk-use-categories" type="checkbox">Replace categories</label><div id="bulk-categories" class="category-options"></div>
 <label><input id="bulk-use-price" type="checkbox">Set price</label><label>Bulk price in USD (blank = unknown; 0 = Free)<input id="bulk-price" type="number" min="0" step="0.01"></label>
 <button id="bulk-save" type="button" class="primary">Apply to selected listings</button><p class="muted">Only checked settings change. A stale entry stops the entire batch.</p></fieldset>
-<details id="feed-changes-panel" class="queue-panel admin-tools"><summary>Feed updates <span id="feed-change-count">0</span></summary><p>Review cancellations, schedule changes, and venue changes to imported events.</p><button id="feed-changes-refresh">Refresh updates</button><div id="feed-changes"></div></details>
+<details id="feed-changes-panel" class="queue-panel admin-tools"><summary>Feed updates <span id="feed-change-count">0</span></summary><p>Review cancellations, schedule changes, and venue changes to imported events.</p><div class="button-row"><button id="feed-changes-refresh" type="button">Refresh updates</button><button id="feed-changes-apply-all" type="button" class="primary" disabled>Apply all updates</button></div><p id="feed-changes-status" role="status"></p><div id="feed-changes"></div></details>
 <div class="workspace"><aside class="queue-panel"><div class="queue-heading"><h2 id="queue-heading">Pending submissions</h2><span id="queue-count"></span></div><div id="queue" aria-live="polite"></div><button id="more" hidden>Load more</button></aside><article class="detail-panel" id="detail"><div class="empty-state"><span class="empty-mark">↗</span><h2>Pick a submission</h2><p>The event, venue, and schedule will appear here.</p></div></article></div>
 <div class="secondary-tools"><details class="queue-panel admin-tools"><summary>Community corrections</summary><p>Investigate and correct event details through the curator tools before resolving. Reports never change listings automatically.</p><button id="reports-refresh">Refresh reports</button><div id="reports"></div></details>
 <details class="queue-panel admin-tools"><summary>Discover new feed events</summary>
 <p>Qualified feed events within 100 miles are accepted automatically. Entries needing location or schedule review appear in Pending. Only newly discovered events appear here. Imported entries are managed in the listings above.</p>
 <div class="button-row">
-<button id="imports-sync" type="button" class="primary">Check feeds now</button>
+<button id="imports-sync" type="button" class="primary">Check all calendar feeds</button>
 <button id="imports-preview" type="button">Preview feeds</button>
 </div>
 <div id="imports" aria-live="polite"></div>

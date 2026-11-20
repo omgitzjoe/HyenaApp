@@ -7,6 +7,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
 import com.example.hyenaapp.data.repository.SavedEventSync
 import com.example.hyenaapp.data.repository.calendarExperiences
+import com.example.hyenaapp.data.repository.mergeCalendarImport
 
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
@@ -274,25 +275,25 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
                             reminderSettings = {
                                 androidx.compose.material3.TextButton(onClick = { savedReloadKey++ }, enabled = !savesLoading) { androidx.compose.material3.Text("Refresh saved events") }
                                 ReminderControls(reminders, savedExperiences, enabled = savingEnabled)
-                                CalendarImport(savingEnabled, calendarImportStatus) { calendar ->
+                                CalendarImport(savingEnabled, calendarImportStatus) { calendars ->
                                     saving = true
                                     calendarImportStatus = "Importing calendar events…"
                                     scope.launch {
                                         try {
-                                            val events = calendarExperiences(context, calendar)
+                                            val events = calendarExperiences(context, calendars)
                                             var added = 0
+                                            var refreshed = 0
                                             val updated = savedStore.update { current ->
-                                                val savedIds = current.map { it.id }.toHashSet()
-                                                val newEvents = events.filter { savedIds.add(it.id) }
-                                                added = newEvents.size
-                                                current + newEvents
+                                                val merged = mergeCalendarImport(current, events)
+                                                added = merged.size - current.size
+                                                refreshed = current.zip(merged).count { (before, after) -> before != after }
+                                                merged
                                             }
                                             savedExperiences = updated
                                             calendarImportStatus = when {
-                                                events.isEmpty() -> "No upcoming events found in this calendar."
-                                                added == 0 -> "These calendar events are already saved."
-                                                added == 1 -> "Imported 1 event into Saved."
-                                                else -> "Imported $added events into Saved."
+                                                events.isEmpty() -> "No upcoming events found."
+                                                added == 0 && refreshed == 0 -> "These calendar events are already up to date."
+                                                else -> "Added $added and updated $refreshed calendar events in Saved."
                                             }
                                             reminders.updateSaved(updated)
                                         } catch (cancelled: CancellationException) {

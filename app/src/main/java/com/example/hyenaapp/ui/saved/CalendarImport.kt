@@ -34,7 +34,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun CalendarImport(enabled: Boolean, status: String?, onImport: (DeviceCalendar) -> Unit) {
+internal fun CalendarImport(enabled: Boolean, status: String?, onImport: (List<DeviceCalendar>) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var calendars by remember { mutableStateOf<List<DeviceCalendar>>(emptyList()) }
@@ -100,11 +100,17 @@ internal fun CalendarImport(enabled: Boolean, status: String?, onImport: (Device
                             }
                         }
                     }
+                    if (calendars.size > 1) {
+                        TextButton(enabled = enabled, onClick = {
+                            showingPicker = false
+                            onImport(calendars)
+                        }) { Text("Import all calendars") }
+                    }
                 }
             },
             confirmButton = {
                 TextButton(enabled = selected != null && enabled, onClick = {
-                    selected?.let(onImport)
+                    selected?.let { onImport(listOf(it)) }
                     showingPicker = false
                 }) { Text("Import events") }
             },

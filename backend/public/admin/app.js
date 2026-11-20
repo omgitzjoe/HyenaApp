@@ -12,7 +12,7 @@ async function api(path,options={}){
     if(!response.ok){if(response.status===401&&path!=='/admin/api/login'&&generation===authGeneration)showLogin();throw Error(data.error?.message||'Request failed.');}
     return data;
 }
-function showLogin(){bulkSelection.clear();authGeneration++;csrf='';rows=[];selectedId=null;$('review-view').hidden=true;$('account').hidden=true;$('login-view').hidden=false;$('queue').replaceChildren();$('detail').replaceChildren();$('imports').replaceChildren();}
+function showLogin(){feedChanges=[];feedChangeErrors.clear();$('feed-changes').replaceChildren();$('feed-changes-status').textContent='';setFeedChangesBusy(false);bulkSelection.clear();authGeneration++;csrf='';rows=[];selectedId=null;$('review-view').hidden=true;$('account').hidden=true;$('login-view').hidden=false;$('queue').replaceChildren();$('detail').replaceChildren();$('imports').replaceChildren();}
 function showReview(session){authGeneration++;csrf=session.csrfToken;$('username').textContent=session.username;$('account').hidden=false;$('login-view').hidden=true;$('review-view').hidden=false;}
 async function referenceData(){
     try{const categories=await api('/api/v1/categories');categoryNames=new Map(categories.items.map(x=>[x.id,x.name]));}
@@ -449,24 +449,97 @@ function sourceSummary(value){
     return [value.title,when,[v.name,v.address,v.city].filter(Boolean).join(', ')].filter(Boolean).join('\n');
 }
 
-async function loadFeedChanges(){
-    const generation=authGeneration;
-    try{
-        const data=await api('/admin/api/feed-changes');if(generation!==authGeneration)return;
-        $('feed-change-count').textContent=String(data.items.length);$('feed-changes').replaceChildren();
-        if(data.items.length)$('feed-changes-panel').open=true;
-        if(!data.items.length)$('feed-changes').append(element('p','No source changes need review.'));
-        for(const item of data.items){
-            const card=element('section',undefined,'feed-change');card.append(element('h3',item.kind==='CANCELLATION'?'Source cancellation':item.kind==='RESCHEDULE'?'Schedule changed':'Source details changed'));
-            card.append(fact('Current source baseline',sourceSummary(item.previous)),fact('Latest source update',sourceSummary(item.incoming)));
-            const apply=element('button',item.kind==='CANCELLATION'?'Withdraw canceled event':'Apply source update','primary'),dismiss=element('button','Dismiss alert');
-            for(const [button,action] of [[apply,'apply'],[dismiss,'dismiss']])button.addEventListener('click',async()=>{
-                if(busy)return;busy=true;apply.disabled=dismiss.disabled=true;
-                try{await api('/admin/api/feed-changes/'+item.id+'/'+action,{method:'POST',body:JSON.stringify({submissionRevision:item.submissionRevision})});notice(action==='apply'?'Source update applied.':'Source alert dismissed.',true);busy=false;await loadQueue();await loadFeedChanges();}
-                catch(error){notice(error.message);}finally{busy=false;apply.disabled=dismiss.disabled=false;}
-            });
-            const buttons=element('div',undefined,'button-row');buttons.append(apply,dismiss);card.append(buttons);$('feed-changes').append(card);
-        }
-    }catch(error){notice(error.message);}
+let feedChanges = [], feedChangesBusy = false, feedChangesRequest = 0;
+const feedChangeErrors = new Map();
+
+function setFeedChangesBusy(value) {
+    feedChangesBusy = value;
+    $('feed-changes-refresh').disabled = value;
+    $('feed-changes-apply-all').disabled = value || !feedChanges.length;
+    for (const button of $('feed-changes').querySelectorAll('button')) button.disabled = value;
 }
-$('feed-changes-refresh').addEventListener('click',loadFeedChanges);
+
+async function reviewFeedChanges(items, action) {
+    if (feedChangesBusy) return;
+    const generation = authGeneration;
+    setFeedChangesBusy(true);
+    const status = $('feed-changes-status');
+    let completed = 0;
+    try {
+        for (const [index, item] of items.entries()) {
+            status.textContent = action === 'dismiss'
+                ? 'Dismissing alert…'
+                : `Applying update ${index + 1} of ${items.length}…`;
+            try {
+                await api('/admin/api/feed-changes/' + item.id + '/' + action, {
+                    method: 'POST', body: JSON.stringify({submissionRevision: item.submissionRevision})
+                });
+                if (generation !== authGeneration) return;
+                completed++;
+                feedChangeErrors.delete(item.id);
+            } catch (error) {
+                if (generation !== authGeneration) return;
+                feedChangeErrors.set(item.id, error.message);
+                if (items.length === 1) status.textContent = error.message;
+            }
+        }
+        const failed = items.length - completed;
+        if (items.length > 1) {
+            status.textContent = `Applied ${completed} of ${items.length} updates.`
+                + (failed ? ` ${failed} could not be applied. Open the remaining updates for details.` : '');
+        } else if (completed) {
+            status.textContent = action === 'dismiss' ? 'Source alert dismissed.' : 'Source update applied.';
+        }
+        await loadFeedChanges();
+        if (completed && generation === authGeneration) await loadQueue();
+    } finally {
+        setFeedChangesBusy(false);
+    }
+}
+
+async function loadFeedChanges() {
+    const generation = authGeneration;
+    const request = ++feedChangesRequest;
+    try {
+        const data = await api('/admin/api/feed-changes');
+        if (generation !== authGeneration || request !== feedChangesRequest) return;
+        feedChanges = data.items;
+        for (const id of feedChangeErrors.keys()) {
+            if (!feedChanges.some(item => item.id === id)) feedChangeErrors.delete(id);
+        }
+        $('feed-change-count').textContent = String(feedChanges.length);
+        $('feed-changes').replaceChildren();
+        if (feedChanges.length) $('feed-changes-panel').open = true;
+        else $('feed-changes').append(element('p', 'No source changes need review.'));
+        for (const item of feedChanges) {
+            const card = element('section', undefined, 'feed-change');
+            card.append(element('h3', item.kind === 'CANCELLATION' ? 'Source cancellation' : item.kind === 'RESCHEDULE' ? 'Schedule changed' : 'Source details changed'));
+            card.append(fact('Current source baseline', sourceSummary(item.previous)), fact('Latest source update', sourceSummary(item.incoming)));
+            const apply = element('button', item.kind === 'CANCELLATION' ? 'Withdraw canceled event' : 'Apply source update', 'primary');
+            const dismiss = element('button', 'Dismiss alert');
+            apply.addEventListener('click', () => reviewFeedChanges([item], 'apply'));
+            dismiss.addEventListener('click', () => reviewFeedChanges([item], 'dismiss'));
+            const buttons = element('div', undefined, 'button-row');
+            buttons.append(apply, dismiss);
+            card.append(buttons);
+            if (feedChangeErrors.has(item.id)) card.append(element('p', feedChangeErrors.get(item.id), 'feed-change-error'));
+            $('feed-changes').append(card);
+        }
+        setFeedChangesBusy(feedChangesBusy);
+    } catch (error) {
+        if (generation === authGeneration && request === feedChangesRequest) {
+            $('feed-changes-status').textContent += ' ' + error.message;
+        }
+    }
+}
+$('feed-changes-refresh').addEventListener('click', () => {
+    $('feed-changes-status').textContent = '';
+    feedChangeErrors.clear();
+    loadFeedChanges();
+});
+$('feed-changes-apply-all').addEventListener('click', () => {
+    if (!feedChanges.length || feedChangesBusy) return;
+    if (window.confirm(`Apply all ${feedChanges.length} source updates, including any cancellations?`)) {
+        reviewFeedChanges(feedChanges, 'apply');
+    }
+});
