@@ -37,6 +37,7 @@ object ExperienceRepository {
                 schedule = dto.nextOccurrence?.let { if (dto.allDay) "${dto.startDate}${dto.endDate?.takeIf { end -> end != dto.startDate }?.let { end -> "–$end" }.orEmpty()} · All day" else if (dto.endTime == null) formatStart(it.startsAt, ZoneId.of(timeZone)) else formatOccurrence(it, ZoneId.of(timeZone)) }
                     ?: "No dated occurrence available",
                 offer = dto.description.orEmpty(),
+                websiteUrl = dto.sourceUrl,
                 occurrenceStart = dto.nextOccurrence?.startsAt,
                 occurrenceEnd = dto.nextOccurrence?.endsAt, hasEndTime = dto.endTime != null, allDay = dto.allDay, scheduleKind = dto.scheduleKind,
                 distanceMiles = dto.distanceMiles, latitude = dto.latitude, longitude = dto.longitude,

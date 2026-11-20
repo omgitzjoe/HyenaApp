@@ -81,7 +81,7 @@ fun HomeScreen(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { PageHeader("Discover / Home", "Good plans, close by.", "Community plans, ordered by time and distance.", mascot = true) }
+        item { PageHeader("Discover / Home", "Searching your hunting grounds", "Community plans, ordered by time and distance.", mascot = true) }
 
         item { locationControls() }
         item {
@@ -146,7 +146,7 @@ fun HomeScreen(
                     title = experience.title,
                         businessName = experience.businessName,
                         schedule = experience.schedule, distanceMiles = experience.distanceMiles,
-                        offer = experience.offer,
+                        offer = experience.offer, websiteUrl = experience.websiteUrl,
                         onClick = { onExperienceClick(experience) },
                         isSaved = experience.id in savedIds,
                         savingEnabled = savingEnabled,

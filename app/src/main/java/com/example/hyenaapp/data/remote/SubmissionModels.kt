@@ -10,7 +10,7 @@ data class SubmissionSchedule(
 )
 data class SubmittedEvent(
  val title: String, val description: String?, val categoryIds: List<String>,
- val schedule: SubmissionSchedule, val priceAmount: String?, val type: String = "OTHER"
+ val schedule: SubmissionSchedule, val priceAmount: String?, val type: String = "OTHER", val sourceUrl: String? = null
 )
 data class EventSubmissionRequest(val clientRequestId: String, val venue: SubmissionVenue, val event: SubmittedEvent)
 data class SubmissionResponse(val item: SubmissionReceipt)

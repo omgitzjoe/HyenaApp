@@ -87,6 +87,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
     val displayTime = remember { DateTimeFormatter.ofPattern("h:mm a", Locale.US) }
     var title by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
+    var website by rememberSaveable { mutableStateOf("") }
     var categoryIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var proposed by rememberSaveable { mutableStateOf(false) }
     var businessId by rememberSaveable { mutableStateOf("") }
@@ -166,8 +167,12 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
 
     fun submit() {
         if (submitting) return
+        val websiteUrl = website.trim().ifBlank { null }
+        val websiteUri = websiteUrl?.let { runCatching { java.net.URI(it) }.getOrNull() }
         val problem = when {
             title.isBlank() -> "Enter an event title."
+            websiteUrl != null && (websiteUri?.scheme !in listOf("https", "http") || websiteUri?.host.isNullOrBlank()) ->
+                "Enter a website starting with https:// or http://, or leave it blank."
             !proposed && businessId.isBlank() -> "Choose an existing venue or propose a new one."
             proposed && venueName.isBlank() -> "Enter the venue name."
             proposed && !manualCoordinates && (city.isBlank() || state.isBlank()) -> "Enter city and state, or use coordinates."
@@ -183,7 +188,8 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
         val body = EventSubmissionRequest(requestId, venue, SubmittedEvent(
             title.trim(), description.trim().ifBlank { null }, categoryIds.toList(),
             SubmissionSchedule(date, endDate.ifBlank { null }, if (allDay) null else startTime, if (allDay || !hasEndTime) null else endTime, allDay),
-            if (unknownPrice) null else price.trim()
+            if (unknownPrice) null else price.trim(),
+            sourceUrl = websiteUrl
         ))
         submitting = true
         message = null
@@ -207,7 +213,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
             item { Text("Reference: $receiptId") }
             item { Button(onClick = onDone) { Text("Done") } }
             item { OutlinedButton(onClick = {
-                receiptId = null; title = ""; description = ""; price = ""; unknownPrice = true
+                receiptId = null; title = ""; description = ""; website = ""; price = ""; unknownPrice = true
                 endDate = ""; hasEndTime = false; businessId = ""; businessName = ""; venueName = ""; address = ""; city = ""
                 dateTouched = false; latitude = ""; longitude = ""; allDay = false; venueQuery = ""; businessAddress = ""; requestId = UUID.randomUUID().toString(); message = null
             }) { Text("Submit another event") } }
@@ -217,6 +223,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
             if (referenceError != null) item { Text(referenceError.orEmpty()); Button(onClick = { reload++ }) { Text("Retry reference data") } }
             item { Entry("Event title", title, 200, !submitting) { title = it; edited() } }
             item { Entry("Description (optional)", description, 10000, !submitting, multiline = true) { description = it; edited() } }
+            item { Entry("Event website (optional)", website, 2048, !submitting) { website = it; edited() } }
             item { Text("Categories (optional)", style = MaterialTheme.typography.titleMedium) }
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

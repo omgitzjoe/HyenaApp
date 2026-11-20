@@ -93,6 +93,7 @@ fun SavedScreen(
                     categories = experience.categories, priceLabel = experience.priceLabel,
                     title = experience.title, businessName = experience.businessName,
                     schedule = experience.schedule, offer = experience.offer, distanceMiles = experience.distanceMiles,
+                    websiteUrl = experience.websiteUrl,
                     isSaved = true, savingEnabled = savingEnabled,
                     onToggleSave = { onToggleSave(experience) },
                     onClick = { onExperienceClick(experience) }
