@@ -630,6 +630,27 @@ test('feed reschedules and cancellations create one alert, apply preserves price
  assert.equal((await db.query('SELECT status FROM event_submissions WHERE id=$1',[row.id])).rows[0].status,'REJECTED');
 });
 
+test('applying a schedule-only feed update keeps a curator title', async () => {
+ const {snapshot,observe}=require('../services/feedChanges');
+ const body=event();
+ const receipt=await submit(body);
+ await reviewSubmission(pool,receipt.id,'APPROVED','reviewer');
+ const source={title:body.event.title,schedule:body.event.schedule,venue:'Open Studio',city:'Rexburg'};
+ const baseline=snapshot(source);
+ const curatedTitle='Curated '+randomUUID();
+ const row=(await db.query('SELECT revision FROM event_submissions WHERE id=$1',[receipt.id])).rows[0];
+ await reviewSubmission(pool,receipt.id,'EDIT','reviewer',{revision:row.revision,event:{title:curatedTitle}});
+
+ const schedule={...source.schedule,startTime:'15:00',endTime:'16:00'};
+ await observe(pool,{...source,schedule,submissionId:receipt.id,sourceSnapshot:baseline});
+ const alert=(await request('/admin/api/feed-changes',undefined,true)).body.items.find(x=>x.submissionId===receipt.id);
+ const applied=await request('/admin/api/feed-changes/'+alert.id+'/apply',{submissionRevision:alert.submissionRevision},true);
+ assert.equal(applied.status,200,JSON.stringify(applied.body));
+ const saved=(await db.query('SELECT payload FROM event_submissions WHERE id=$1',[receipt.id])).rows[0].payload.event;
+ assert.equal(saved.title,curatedTitle);
+ assert.match(saved.schedule.startTime,/^15:00/);
+});
+
 test('dismissing a source alert keeps admin edits and stale source actions are rejected',async()=>{
  const {snapshot,observe}=require('../services/feedChanges');
  const body=event();const receipt=await submit(body);await reviewSubmission(pool,receipt.id,'APPROVED','reviewer');

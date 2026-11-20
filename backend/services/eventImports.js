@@ -383,8 +383,11 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
         }
         return summary;
     }
-    function sync() {
-        if (!runningSync) runningSync = importEligible().finally(() => { runningSync = null; });
+    function sync({ refresh = false } = {}) {
+        if (!runningSync) {
+            if (refresh) cache.clear();
+            runningSync = importEligible().finally(() => { runningSync = null; });
+        }
         return runningSync;
     }
     return { preview, queue, dismiss, sync };

@@ -43,8 +43,17 @@ async function resolveChange(pool,id,action,username,{submissionRevision},venueL
     if(row.status==='APPROVED')await reviewSubmission(pool,row.id,'PENDING',username,{},now,client);
     if(row.status!=='REJECTED')await reviewSubmission(pool,row.id,'REJECTED',username,{},now,client);
    }else{
-    const options={revision:row.revision,event:{title:change.incoming.title,schedule:change.incoming.schedule}};
-    if(signature(change.previous.venue)!==signature(change.incoming.venue))options.venue=await venueLookup.venue({proposal:change.incoming.venue});
+    const {previous,incoming}=change;
+    const event={};
+    if(previous.title!==incoming.title)event.title=incoming.title;
+    if(signature(previous.schedule)!==signature(incoming.schedule)){
+     if(!incoming.schedule?.startDate)throw new ReviewError(400,'SOURCE_SCHEDULE_MISSING','The feed did not provide a usable schedule. Edit the listing manually, then dismiss this alert.');
+     event.schedule=incoming.schedule;
+    }
+    const options={revision:row.revision,event};
+    if(signature(previous.venue)!==signature(incoming.venue)){
+     options.venue=await venueLookup.venue({proposal:incoming.venue});
+    }
     await reviewSubmission(pool,row.id,'EDIT',username,options,now,client);
    }
   }

@@ -96,7 +96,7 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
         }
     });
     router.post('/api/event-imports/sync', async (req, res) => {
-        try { res.json(await imports.sync()); }
+        try { res.json(await imports.sync({ refresh: true })); }
         catch (error) {
             logger.error('Event feed sync failed:', error.message);
             res.status(502).json({ error: { message: 'Unable to check feeds right now.' } });
@@ -155,7 +155,7 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
     });
     router.get('/api/feed-changes',async(req,res)=>{
         try{
-            const result=await pool.query(`SELECT c.id,c.kind,c.previous,c.incoming,c.last_seen_at AS "lastSeenAt",s.id AS "submissionId",s.revision AS "submissionRevision",s.status AS "submissionStatus" FROM feed_changes c JOIN event_submissions s ON s.id=c.submission_id WHERE c.status='OPEN' ORDER BY c.last_seen_at DESC,c.id LIMIT 100`);
+            const result=await pool.query(`SELECT c.id,c.kind,c.previous,c.incoming,c.last_seen_at AS "lastSeenAt",s.id AS "submissionId",s.revision AS "submissionRevision",s.status AS "submissionStatus" FROM feed_changes c JOIN event_submissions s ON s.id=c.submission_id WHERE c.status='OPEN' ORDER BY c.last_seen_at DESC,c.id`);
             res.json({items:result.rows});
         }catch(error){logger.error('Feed alerts failed:',error.message);res.status(503).json({error:{message:'Unable to load source updates.'}});}
     });

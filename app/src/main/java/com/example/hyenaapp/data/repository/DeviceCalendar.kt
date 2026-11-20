@@ -36,8 +36,11 @@ internal suspend fun deviceCalendars(context: Context): List<DeviceCalendar> = w
 }
 
 @SuppressLint("MissingPermission")
-internal suspend fun calendarExperiences(context: Context, calendar: DeviceCalendar): List<Experience> =
+internal suspend fun calendarExperiences(context: Context, calendars: List<DeviceCalendar>): List<Experience> =
     withContext(Dispatchers.IO) {
+        if (calendars.isEmpty()) return@withContext emptyList()
+        val calendarIds = calendars.map { it.id.toString() }.toTypedArray()
+        val placeholders = calendarIds.joinToString(",") { "?" }
         val zone = ZoneId.systemDefault()
         val now = Instant.now()
         val end = now.atZone(zone).plusDays(90).toInstant()
@@ -48,11 +51,11 @@ internal suspend fun calendarExperiences(context: Context, calendar: DeviceCalen
         }.build()
         val columns = arrayOf(
             Instances.EVENT_ID, Instances.BEGIN, Instances.END, Instances.TITLE,
-            Instances.EVENT_LOCATION, Instances.ALL_DAY, Instances.STATUS, Instances.SELF_ATTENDEE_STATUS
+            Instances.EVENT_LOCATION, Instances.ALL_DAY, Instances.STATUS, Instances.SELF_ATTENDEE_STATUS, Instances.CALENDAR_ID
         )
         val dateFormat = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy")
         checkNotNull(context.contentResolver.query(
-            uri, columns, "${Instances.CALENDAR_ID} = ?", arrayOf(calendar.id.toString()), Instances.BEGIN
+            uri, columns, "${Instances.CALENDAR_ID} IN ($placeholders)", calendarIds, Instances.BEGIN
         )).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
@@ -75,7 +78,7 @@ internal suspend fun calendarExperiences(context: Context, calendar: DeviceCalen
                         else -> "${startDate.format(dateFormat)} – ${lastDate.format(dateFormat)} · All day"
                     }
                     add(Experience(
-                        id = "$DEVICE_CALENDAR_ID_PREFIX${calendar.id}:${cursor.getLong(0)}:${rawStart.toEpochMilli()}",
+                        id = "$DEVICE_CALENDAR_ID_PREFIX${cursor.getLong(8)}:${cursor.getLong(0)}:${rawStart.toEpochMilli()}",
                         title = title.ifBlank { "Untitled calendar event" },
                         businessName = cursor.getString(4).orEmpty().trim().ifBlank { "Phone calendar" },
                         schedule = schedule,
