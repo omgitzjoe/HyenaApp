@@ -200,8 +200,12 @@ function createEventImports({ pool, fetcher = fetch, clock = () => new Date(), v
             if (!result) throw primaryError;
             return {
                 name: config.name, format: result.format, records: result.rows.length,
-                note: fallback ? 'City Parks feed empty or unavailable. Showing Idaho Falls Public Library events.' :
-                    result.truncated ? 'Preview covers the first 150 upcoming source entries.' : null,
+                note: [
+                    fallback && (primaryError
+                        ? 'City Parks is unavailable. Showing Idaho Falls Public Library events.'
+                        : 'City Parks returned no events. Showing Idaho Falls Public Library events.'),
+                    result.truncated && 'Preview covers the first 150 upcoming source entries.'
+                ].filter(Boolean).join(' ') || null,
                 items: normalize(source, result.rows, clock())
             };
         })();
