@@ -14,8 +14,6 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal const val DEVICE_CALENDAR_ID_PREFIX = "device-calendar:"
-
 internal data class DeviceCalendar(val id: Long, val name: String, val account: String, val primary: Boolean)
 
 @SuppressLint("MissingPermission")
@@ -51,7 +49,8 @@ internal suspend fun calendarExperiences(context: Context, calendars: List<Devic
         }.build()
         val columns = arrayOf(
             Instances.EVENT_ID, Instances.BEGIN, Instances.END, Instances.TITLE,
-            Instances.EVENT_LOCATION, Instances.ALL_DAY, Instances.STATUS, Instances.SELF_ATTENDEE_STATUS, Instances.CALENDAR_ID
+            Instances.EVENT_LOCATION, Instances.ALL_DAY, Instances.STATUS, Instances.SELF_ATTENDEE_STATUS, Instances.CALENDAR_ID,
+            Instances.RRULE, Instances.RDATE
         )
         val dateFormat = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy")
         checkNotNull(context.contentResolver.query(
@@ -77,8 +76,10 @@ internal suspend fun calendarExperiences(context: Context, calendars: List<Devic
                         lastDate <= startDate -> "${startDate.format(dateFormat)} · All day"
                         else -> "${startDate.format(dateFormat)} – ${lastDate.format(dateFormat)} · All day"
                     }
+                    val eventId = "$DEVICE_CALENDAR_ID_PREFIX${cursor.getLong(8)}:${cursor.getLong(0)}"
+                    val recurring = !cursor.getString(9).isNullOrBlank() || !cursor.getString(10).isNullOrBlank()
                     add(Experience(
-                        id = "$DEVICE_CALENDAR_ID_PREFIX${cursor.getLong(8)}:${cursor.getLong(0)}:${rawStart.toEpochMilli()}",
+                        id = if (recurring) "$eventId:${rawStart.toEpochMilli()}" else eventId,
                         title = title.ifBlank { "Untitled calendar event" },
                         businessName = cursor.getString(4).orEmpty().trim().ifBlank { "Phone calendar" },
                         schedule = schedule,

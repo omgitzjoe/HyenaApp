@@ -7,6 +7,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
 import com.example.hyenaapp.data.repository.SavedEventSync
 import com.example.hyenaapp.data.repository.calendarExperiences
+import com.example.hyenaapp.data.repository.mergeCalendarImport
 
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
@@ -283,14 +284,10 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
                                             var added = 0
                                             var refreshed = 0
                                             val updated = savedStore.update { current ->
-                                                val remaining = events.associateBy { it.id }.toMutableMap()
-                                                val existing = current.map { saved ->
-                                                    val incoming = remaining.remove(saved.id)
-                                                    if (incoming != null && incoming != saved) refreshed++
-                                                    incoming ?: saved
-                                                }
-                                                added = remaining.size
-                                                existing + remaining.values
+                                                val merged = mergeCalendarImport(current, events)
+                                                added = merged.size - current.size
+                                                refreshed = current.zip(merged).count { (before, after) -> before != after }
+                                                merged
                                             }
                                             savedExperiences = updated
                                             calendarImportStatus = when {
