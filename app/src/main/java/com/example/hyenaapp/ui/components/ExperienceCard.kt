@@ -2,11 +2,11 @@ package com.example.hyenaapp.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,11 +21,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.hyenaapp.domain.model.EventCategory
 import java.util.Locale
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ExperienceCard(
     title: String,
@@ -73,9 +73,9 @@ fun ExperienceCard(
                 Text(venue, style = type.bodyMedium, color = colors.onSurfaceVariant)
             }
             if (visibleCategories.isNotEmpty()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     visibleCategories.forEach { CategoryChip(it) }
                 }
@@ -84,7 +84,13 @@ fun ExperienceCard(
                 Text(price, style = type.labelLarge, color = colors.primary)
             }
             if (offer.isNotBlank()) {
-                Text(offer, style = type.bodyMedium, color = colors.onSurfaceVariant)
+                Text(
+                    offer,
+                    style = type.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
         if (website != null || onToggleSave != null) {

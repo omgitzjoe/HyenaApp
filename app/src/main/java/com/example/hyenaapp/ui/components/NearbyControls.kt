@@ -14,16 +14,21 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Modifier
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
@@ -32,6 +37,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.hyenaapp.data.repository.NearbyLocation
 import com.example.hyenaapp.data.repository.discoveryRadiiMiles
+import com.example.hyenaapp.data.repository.discoveryRadiusRange
+import com.example.hyenaapp.data.repository.parseDiscoveryRadiusMiles
 import kotlin.coroutines.resume
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
@@ -102,6 +109,17 @@ fun LocationTracker(refresh: Int, onLocation: (NearbyLocation?) -> Unit, onMessa
 @Composable
 fun LocationControls(location: NearbyLocation?, radius: Int, message: String, onRadius: (Int) -> Unit, onRetry: () -> Unit) {
     val context = LocalContext.current
+    var showRadiusDialog by rememberSaveable { mutableStateOf(false) }
+    if (showRadiusDialog) {
+        CustomRadiusDialog(
+            radius,
+            onDismiss = { showRadiusDialog = false },
+            onApply = {
+                showRadiusDialog = false
+                onRadius(it)
+            }
+        )
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (location != null) {
@@ -110,6 +128,12 @@ fun LocationControls(location: NearbyLocation?, radius: Int, message: String, on
                     FilterChip(selected = radius == miles, onClick = { onRadius(miles) }, label = { Text("$miles mi") })
                 }
             }
+            val custom = radius !in discoveryRadiiMiles
+            FilterChip(
+                selected = custom,
+                onClick = { showRadiusDialog = true },
+                label = { Text(if (custom) "Custom distance: $radius mi" else "Custom distance") }
+            )
         } else if (!message.startsWith("Finding")) {
             Row {
                 TextButton(onClick = onRetry) { Text("Retry location") }
@@ -117,4 +141,34 @@ fun LocationControls(location: NearbyLocation?, radius: Int, message: String, on
             }
         }
     }
+}
+
+@Composable
+private fun CustomRadiusDialog(radius: Int, onDismiss: () -> Unit, onApply: (Int) -> Unit) {
+    var draft by rememberSaveable { mutableStateOf(radius.toString()) }
+    val validRadius = parseDiscoveryRadiusMiles(draft)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Custom distance") },
+        text = {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                label = { Text("Distance in miles") },
+                supportingText = {
+                    Text("Enter a whole number from ${discoveryRadiusRange.first} to ${discoveryRadiusRange.last}.")
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                isError = draft.isNotEmpty() && validRadius == null
+            )
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = {
+            TextButton(
+                enabled = validRadius != null,
+                onClick = { validRadius?.let(onApply) }
+            ) { Text("Apply") }
+        }
+    )
 }

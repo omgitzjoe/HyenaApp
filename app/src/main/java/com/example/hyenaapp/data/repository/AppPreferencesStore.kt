@@ -6,12 +6,17 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.time.LocalDate
 
-internal val discoveryRadiiMiles = listOf(10, 25, 50, 100)
+internal const val DEFAULT_DISCOVERY_RADIUS_MILES = 10
+internal val discoveryRadiiMiles = listOf(DEFAULT_DISCOVERY_RADIUS_MILES, 25, 50, 100)
+internal val discoveryRadiusRange = 1..100
+
+internal fun parseDiscoveryRadiusMiles(value: String): Int? =
+    value.trim().toIntOrNull()?.takeIf { it in discoveryRadiusRange }
 
 /** Device preferences only. Coordinates and event drafts are never persisted here. */
 data class AppPreferences(
     val theme: String = "light",
-    val radiusMiles: Int = 10,
+    val radiusMiles: Int = DEFAULT_DISCOVERY_RADIUS_MILES,
     val filters: DiscoveryFilters = DiscoveryFilters()
 )
 
@@ -40,7 +45,8 @@ internal object AppPreferencesCodec {
             val date = text(f, "date")?.takeIf { runCatching { LocalDate.parse(it) }.isSuccess }
             val window = text(f, "window")?.takeIf { it in listOf("today", "tonight", "now", "tomorrow", "date", "all") } ?: "today"
             val radius = root.get("radiusMiles")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble
-                ?.let { miles -> discoveryRadiiMiles.firstOrNull { it.toDouble() == miles } } ?: 10
+                ?.let { miles -> miles.toInt().takeIf { it.toDouble() == miles && it in discoveryRadiusRange } }
+                ?: DEFAULT_DISCOVERY_RADIUS_MILES
             AppPreferences(
                 theme = if (text(root, "theme") == "dark") "dark" else "light",
                 radiusMiles = radius,

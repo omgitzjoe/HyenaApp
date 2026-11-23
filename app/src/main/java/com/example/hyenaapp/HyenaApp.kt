@@ -53,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.hyenaapp.data.repository.DEFAULT_DISCOVERY_RADIUS_MILES
 import com.example.hyenaapp.data.repository.DiscoveryFilters
 import com.example.hyenaapp.data.repository.NearbyLocation
 import com.example.hyenaapp.data.repository.SavedExperienceCodec
@@ -150,7 +151,7 @@ fun HyenaApp(preferences: AppPreferences = AppPreferences(), onPreferencesChange
     val updateFilters: (DiscoveryFilters) -> Unit = { onPreferencesChange(preferences.copy(filters = it)) }
     val filterControls: @Composable () -> Unit = {
         DiscoveryFiltersPanel(filters, updateFilters, onClear = {
-            onPreferencesChange(preferences.copy(filters = DiscoveryFilters(), radiusMiles = 10))
+            onPreferencesChange(preferences.copy(filters = DiscoveryFilters(), radiusMiles = DEFAULT_DISCOVERY_RADIUS_MILES))
         })
     }
 
