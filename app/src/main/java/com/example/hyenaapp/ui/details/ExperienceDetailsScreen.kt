@@ -38,7 +38,7 @@ fun ExperienceDetailsScreen(
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         TextButton(onClick = onBack) { Text("Back to experiences") }
-        PageHeader("Experience / Details", title, businessName)
+        PageHeader(title, businessName)
         DetailSection("When", schedule)
         if (priceLabel.isNotBlank()) DetailSection("Price", priceLabel)
         if (offer.isNotBlank()) DetailSection("About", offer)
