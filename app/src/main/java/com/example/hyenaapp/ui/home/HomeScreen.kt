@@ -20,7 +20,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.example.hyenaapp.data.repository.DEFAULT_DISCOVERY_RADIUS_MILES
 import com.example.hyenaapp.data.repository.DiscoveryFilters
 import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.data.repository.NearbyLocation
@@ -37,10 +39,10 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
 
 @Composable
-fun HomeScreen(
+internal fun HomeScreen(
     modifier: Modifier = Modifier,
     nearby: NearbyLocation? = null,
-    radiusMiles: Int = 10,
+    radiusMiles: Int = DEFAULT_DISCOVERY_RADIUS_MILES,
     timeZone: String = java.time.ZoneId.systemDefault().id,
     locationControls: @Composable () -> Unit = {},
     filters: DiscoveryFilters = DiscoveryFilters(),
@@ -50,7 +52,8 @@ fun HomeScreen(
     savedIds: Set<String> = emptySet(),
     savingEnabled: Boolean = true,
     onToggleSave: (Experience) -> Unit = {},
-    onExperienceClick: (Experience) -> Unit = {}
+    onExperienceClick: (Experience) -> Unit = {},
+    loadExperiences: suspend (DiscoveryFilters, NearbyLocation, Int, String) -> List<Experience> = ::loadDiscoverableExperiences
 ) {
     var experiences by remember {
         mutableStateOf<List<Experience>>(emptyList())
@@ -61,8 +64,13 @@ fun HomeScreen(
 
     val query = filters.query.trim()
 
-    LaunchedEffect(filters, nearby, radiusMiles, timeZone, reloadKey) {
-        if (nearby == null) { experiences = emptyList(); isLoading = false; errorMessage = null; return@LaunchedEffect }
+    LaunchedEffect(filters, nearby, radiusMiles, timeZone, reloadKey, loadExperiences) {
+        if (nearby == null) {
+            experiences = emptyList()
+            isLoading = false
+            errorMessage = null
+            return@LaunchedEffect
+        }
         isLoading = true
         errorMessage = null
 
@@ -71,7 +79,9 @@ fun HomeScreen(
                 delay(300)
             }
 
-            experiences = ExperienceRepository.getExperiences(query, filters.window, timeZone, nearby, radiusMiles, filters, limit = if (filters.window == "date") 100 else 20)
+            // The feed shows one card per event. Duplicate IDs would crash a lazy list
+            // once two copies of the same item are composed together.
+            experiences = loadExperiences(filters, nearby, radiusMiles, timeZone).distinctBy { it.id }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -83,7 +93,7 @@ fun HomeScreen(
     }
 
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().testTag("discovery-feed"),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -147,7 +157,7 @@ fun HomeScreen(
             else -> {
                 items(
                     items = experiences,
-                    key = { experience -> experience.id }
+                    key = { experience -> "event:${experience.id}" }
                 ) { experience ->
                     ExperienceCard(
                         title = experience.title,
@@ -168,6 +178,21 @@ fun HomeScreen(
         }
     }
 }
+
+private suspend fun loadDiscoverableExperiences(
+    filters: DiscoveryFilters,
+    nearby: NearbyLocation,
+    radiusMiles: Int,
+    timeZone: String
+): List<Experience> = ExperienceRepository.getExperiences(
+    query = filters.query.trim(),
+    window = filters.window,
+    timeZone = timeZone,
+    nearby = nearby,
+    radiusMiles = radiusMiles,
+    filters = filters,
+    limit = if (filters.window == "date") 100 else 20
+)
 
 @Composable
 private fun DiscoveryStatus(
