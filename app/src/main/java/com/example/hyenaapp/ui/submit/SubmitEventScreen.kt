@@ -207,7 +207,7 @@ fun SubmitEventScreen(nearby: NearbyLocation? = null, radiusMiles: Int = 10, onD
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item { TextButton(onClick = onDone, enabled = !submitting) { Text("Back") } }
-        item { PageHeader("Share / Submit event", "Bring people together.", "Add an experience for your community. Every submission is reviewed before it appears publicly.") }
+        item { PageHeader("Submit an event", "We review submissions before publishing them.") }
         if (receiptId != null) {
             item { Text(when (receiptStatus) { "APPROVED" -> "Your event has been approved."; "REJECTED" -> "Your submission was reviewed and not approved."; else -> "Submission received. It will not appear publicly until an administrator approves it." }) }
             item { Text("Reference: $receiptId") }

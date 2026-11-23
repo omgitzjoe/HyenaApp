@@ -1,13 +1,17 @@
 package com.example.hyenaapp.ui.home
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,16 +21,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.hyenaapp.data.repository.DiscoveryFilters
 import com.example.hyenaapp.data.repository.ExperienceRepository
 import com.example.hyenaapp.data.repository.NearbyLocation
-import com.example.hyenaapp.data.repository.DiscoveryFilters
 import com.example.hyenaapp.domain.model.Experience
-import com.example.hyenaapp.ui.components.EventCalendar
 import com.example.hyenaapp.ui.components.DiscoveryWindowPicker
+import com.example.hyenaapp.ui.components.EventCalendar
+import com.example.hyenaapp.ui.components.ExperienceCard
 import com.example.hyenaapp.ui.components.PageHeader
 import java.time.LocalDate
 import java.time.ZoneId
-import com.example.hyenaapp.ui.components.ExperienceCard
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
 
@@ -70,7 +76,7 @@ fun HomeScreen(
             throw error
         } catch (error: Exception) {
             errorMessage =
-                "Couldn't load experiences. Check your connection and try again."
+                "Check your connection and try again."
         } finally {
             isLoading = false
         }
@@ -81,7 +87,7 @@ fun HomeScreen(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { PageHeader("Discover / Home", "Searching your hunting grounds", "Community plans, ordered by time and distance.", mascot = true) }
+        item { PageHeader("Events near you", "See what’s on nearby, soonest first.", mascot = true) }
 
         item { locationControls() }
         item {
@@ -99,41 +105,43 @@ fun HomeScreen(
         if (filters.window == "date") {
             item(key = "calendar") {
                 val date = filters.date?.let(LocalDate::parse) ?: LocalDate.now(ZoneId.of(timeZone))
-                EventCalendar(date, onDateChange)
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    EventCalendar(date, onDateChange)
+                    val label = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.LONG))
+                    Text("Events on $label", style = MaterialTheme.typography.titleMedium)
+                }
             }
-            item { Text("Events on ${filters.date}", style = MaterialTheme.typography.titleMedium) }
         }
 
         when {
-            nearby == null -> item { Text("Enable location to discover experiences around you.") }
-            isLoading -> {
-                item {
-                    CircularProgressIndicator()
-                }
+            nearby == null -> item {
+                DiscoveryStatus(
+                    title = "Waiting for location",
+                    description = "Nearby events appear once your location is available."
+                )
             }
 
-            errorMessage != null -> {
-                item {
-                    Text(text = errorMessage.orEmpty())
-                }
+            isLoading -> item {
+                DiscoveryStatus(title = "Finding events", loading = true)
+            }
 
-                item {
-                    Button(onClick = { reloadKey++ }) {
-                        Text(text = "Retry")
+            errorMessage != null -> item {
+                DiscoveryStatus(
+                    title = "Couldn’t load events",
+                    description = errorMessage.orEmpty(),
+                    onRetry = { reloadKey++ }
+                )
+            }
+
+            experiences.isEmpty() -> item {
+                DiscoveryStatus(
+                    title = if (query.isEmpty()) "No events found" else "No matching events",
+                    description = if (query.isEmpty()) {
+                        "Try a wider radius, a different day, or clear your filters."
+                    } else {
+                        "Try fewer search terms, a wider radius, or a different day."
                     }
-                }
-            }
-
-            experiences.isEmpty() -> {
-                item {
-                    Text(
-                        text = if (query.isEmpty()) {
-                            "Nothing nearby matches these filters. Try a wider radius, another day, or Clear filters."
-                        } else {
-                            "Nothing nearby matches your search. Try fewer keywords, a wider radius, or another day."
-                        }
-                    )
-                }
+                )
             }
 
             else -> {
@@ -142,17 +150,47 @@ fun HomeScreen(
                     key = { experience -> experience.id }
                 ) { experience ->
                     ExperienceCard(
-                        categories = experience.categories.orEmpty(), priceLabel = experience.priceLabel ?: "Price unknown",
-                    title = experience.title,
+                        title = experience.title,
                         businessName = experience.businessName,
-                        schedule = experience.schedule, distanceMiles = experience.distanceMiles,
-                        offer = experience.offer, websiteUrl = experience.websiteUrl,
+                        schedule = experience.schedule,
+                        categories = experience.categories.orEmpty(),
+                        priceLabel = experience.priceLabel.orEmpty(),
+                        distanceMiles = experience.distanceMiles,
+                        offer = experience.offer,
+                        websiteUrl = experience.websiteUrl,
                         onClick = { onExperienceClick(experience) },
                         isSaved = experience.id in savedIds,
                         savingEnabled = savingEnabled,
                         onToggleSave = { onToggleSave(experience) }
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoveryStatus(
+    title: String,
+    description: String? = null,
+    loading: Boolean = false,
+    onRetry: (() -> Unit)? = null
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            if (description != null) {
+                Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (loading) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+            if (onRetry != null) {
+                OutlinedButton(onClick = onRetry) { Text("Try again") }
             }
         }
     }

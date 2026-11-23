@@ -1,19 +1,31 @@
 package com.example.hyenaapp.ui.components
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import com.example.hyenaapp.domain.model.EventCategory
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
+import com.example.hyenaapp.domain.model.EventCategory
 import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ExperienceCard(
     title: String,
@@ -30,54 +42,72 @@ fun ExperienceCard(
     priceLabel: String = "",
     websiteUrl: String? = null
 ) {
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
+    val visibleCategories = categories.distinctBy { it.id }.sortedBy { it.name }
+    val distance = distanceMiles?.let {
+        if (it < 0.1) "<0.1 mi" else String.format(Locale.US, "%.1f mi", it)
+    }
+    val venue = listOfNotNull(businessName.takeIf { it.isNotBlank() }, distance).joinToString(" · ")
+    val price = priceLabel.trim().takeUnless { it.isEmpty() || it.equals("Price unknown", ignoreCase = true) }
+    val website = websiteUrl?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+
     Card(
-        modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = colors.surface),
+        border = BorderStroke(1.dp, colors.outlineVariant)
     ) {
-        if (categories.isNotEmpty()) Row(Modifier.fillMaxWidth().height(5.dp)) {
-            categories.distinctBy { it.id }.sortedBy { it.name }.forEach { category ->
-                Surface(color = categoryColor(category), modifier = Modifier.weight(1f).fillMaxHeight()) {}
-            }
-        }
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(businessName, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                distanceMiles?.let {
-                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
-                        Text(if (it < 0.1) "<0.1 mi" else String.format(Locale.US, "%.1f mi", it), Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
-                    }
+        if (visibleCategories.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().height(3.dp)) {
+                visibleCategories.forEach { category ->
+                    Box(Modifier.weight(1f).fillMaxHeight().background(categoryColor(category)))
                 }
             }
-            Text(title, style = MaterialTheme.typography.titleLarge)
-            if (categories.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                categories.distinctBy { it.id }.sortedBy { it.name }.forEach { CategoryChip(it) }
+        }
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = type.titleLarge)
+            Text(schedule, style = type.bodyMedium, color = colors.primary)
+            if (venue.isNotBlank()) {
+                Text(venue, style = type.bodyMedium, color = colors.onSurfaceVariant)
             }
-            if (priceLabel.isNotBlank()) Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
-                Text(priceLabel, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            if (visibleCategories.isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    visibleCategories.forEach { CategoryChip(it) }
+                }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("WHEN", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                Text(schedule, style = MaterialTheme.typography.titleMedium)
+            if (price != null) {
+                Text(price, style = type.labelLarge, color = colors.primary)
             }
-            if (offer.isNotBlank()) Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
-                Text(offer, Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            if (offer.isNotBlank()) {
+                Text(offer, style = type.bodyMedium, color = colors.onSurfaceVariant)
             }
-            websiteUrl?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let { url ->
-                val uriHandler = LocalUriHandler.current
-                TextButton(onClick = {
-                    try {
-                        uriHandler.openUri(url)
-                    } catch (_: IllegalArgumentException) {
-                        // No installed app can open the website.
+        }
+        if (website != null || onToggleSave != null) {
+            // Separate rows let actions wrap at larger font sizes.
+            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)) {
+                if (website != null) {
+                    val uriHandler = LocalUriHandler.current
+                    TextButton(onClick = {
+                        try {
+                            uriHandler.openUri(website)
+                        } catch (_: IllegalArgumentException) {
+                            // No installed app can open the website.
+                        }
+                    }) { Text("Visit website") }
+                }
+                if (onToggleSave != null) {
+                    TextButton(
+                        onClick = onToggleSave,
+                        enabled = savingEnabled,
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text(if (isSaved) "Remove from saved" else "Save event")
                     }
-                }) { Text("Visit website") }
-            }
-            onToggleSave?.let { toggle ->
-                TextButton(onClick = toggle, enabled = savingEnabled, modifier = Modifier.align(Alignment.End)) {
-                    Text(if (isSaved) "Saved · Remove" else "Save experience")
                 }
             }
         }

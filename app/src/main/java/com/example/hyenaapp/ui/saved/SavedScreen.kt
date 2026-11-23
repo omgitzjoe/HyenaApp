@@ -61,7 +61,7 @@ fun SavedScreen(
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { PageHeader("Saved", "Your plans", "Browse your saved events and manage reminders.") }
+        item { PageHeader("Saved events", "View your calendar and manage reminders.") }
         item { reminderSettings() }
         item {
             TabRow(selectedTabIndex = if (calendar) 1 else 0) {
