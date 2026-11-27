@@ -1,6 +1,6 @@
 const { venueTimeZone } = require('./venueLocation');
 const { randomUUID } = require('node:crypto');
-class ReviewError extends Error {constructor(status,code,message){super(message);this.status=status;this.code=code;}}
+class ReviewError extends Error {constructor(status,code,message,fields=[]){super(message);this.status=status;this.code=code;this.fields=fields;}}
 async function publishExperience(client,data,existingId=null){
  const result=await client.query('SELECT id,name,address,city,state,latitude,longitude FROM businesses WHERE id=$1 AND is_active FOR SHARE',[data.businessId]);
  if(!result.rows.length)throw new ReviewError(400,'INVALID_BUSINESS','Choose an active venue.');
