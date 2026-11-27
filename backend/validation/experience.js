@@ -21,7 +21,13 @@ const scheduleSchema = z.preprocess(value=>{
  if(s.endDate && s.endDate<s.startDate)issue('endDate','End date must follow start date.');
  if(!s.allDay && !s.startTime)issue('startTime','Enter a start time or choose All Day.');
  if(!s.allDay && s.endTime && s.kind==='ONCE' && (!s.endDate || s.endDate===s.startDate) && s.endTime<=s.startTime)issue('endTime','Enter an end time after the start time, or a later end date for an overnight event.');
- if(s.kind==='WEEKLY' ? !s.weekdays.length : s.weekdays.length)issue('weekdays','Weekly schedules need weekdays; one-time events have none.');
+ if(s.kind==='WEEKLY' && !s.weekdays.length)issue('weekdays','Select at least one day of the week.');
+ if(s.kind==='ONCE' && s.weekdays.length)issue('weekdays','One-time events cannot repeat on weekdays.');
+ if(s.kind==='WEEKLY' && s.endDate && s.endDate>=s.startDate && s.weekdays.length) {
+  const start=Temporal.PlainDate.from(s.startDate);
+  if(!s.weekdays.some(day=>Temporal.PlainDate.compare(start.add({days:(day-start.dayOfWeek+7)%7}),s.endDate)<=0))
+   issue('endDate','The end date must include at least one selected weekday.');
+ }
 }));
 const createExperienceSchema=z.preprocess(value=>{
  if(!value || typeof value!=='object')return value;
