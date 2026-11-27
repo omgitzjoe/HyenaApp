@@ -1,20 +1,11 @@
--- Production-safe category taxonomy only; no demonstration events or accounts.
+-- Optional category bootstrap for a fresh schema; startup migration 010 also ensures these choices.
 BEGIN;
-INSERT INTO categories(id,name,slug) SELECT '955c125a-00d4-5731-be1c-b06c9ba92710','Food','hyena-seed-food' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='955c125a-00d4-5731-be1c-b06c9ba92710' OR name='Food' OR slug='hyena-seed-food');
-INSERT INTO categories(id,name,slug) SELECT '8a8067c1-da36-5fa3-946c-dc1cee24386e','Music','hyena-seed-music' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='8a8067c1-da36-5fa3-946c-dc1cee24386e' OR name='Music' OR slug='hyena-seed-music');
-INSERT INTO categories(id,name,slug) SELECT 'f475f0ad-dd74-5658-8edc-bced65bf10eb','Games','hyena-seed-games' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='f475f0ad-dd74-5658-8edc-bced65bf10eb' OR name='Games' OR slug='hyena-seed-games');
-INSERT INTO categories(id,name,slug) SELECT 'b995eb5e-188f-5308-a931-ae257f38f8e8','Family','hyena-seed-family' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='b995eb5e-188f-5308-a931-ae257f38f8e8' OR name='Family' OR slug='hyena-seed-family');
-INSERT INTO categories(id,name,slug) SELECT 'dcae12a0-e52f-5c82-888d-c2a081a7facf','Outdoors','hyena-seed-outdoors' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='dcae12a0-e52f-5c82-888d-c2a081a7facf' OR name='Outdoors' OR slug='hyena-seed-outdoors');
-INSERT INTO categories(id,name,slug) SELECT '5757c923-65a6-5d02-81e0-55991a596f1a','Arts','hyena-seed-arts' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='5757c923-65a6-5d02-81e0-55991a596f1a' OR name='Arts' OR slug='hyena-seed-arts');
-INSERT INTO categories(id,name,slug) SELECT 'ae83e8e4-7d53-5b0f-9d50-10330a8ce344','Sports','hyena-seed-sports' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='ae83e8e4-7d53-5b0f-9d50-10330a8ce344' OR name='Sports' OR slug='hyena-seed-sports');
-INSERT INTO categories(id,name,slug) SELECT 'ccad017c-4d11-5078-9914-65a1bd70baa5','College','hyena-seed-college' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='ccad017c-4d11-5078-9914-65a1bd70baa5' OR name='College' OR slug='hyena-seed-college');
-INSERT INTO categories(id,name,slug) SELECT '38d06ae2-3b31-5827-87de-26ebfc42394b','Entertainment','hyena-seed-entertainment' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='38d06ae2-3b31-5827-87de-26ebfc42394b' OR name='Entertainment' OR slug='hyena-seed-entertainment');
-INSERT INTO categories(id,name,slug) SELECT '9a1703ee-dbf7-5350-8da5-5c720e06cd9b','Date Night','hyena-seed-date-night' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='9a1703ee-dbf7-5350-8da5-5c720e06cd9b' OR name='Date Night' OR slug='hyena-seed-date-night');
-INSERT INTO categories(id,name,slug) SELECT '7485ca29-febb-542e-b1b3-0642eed00253','Free','hyena-seed-free' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='7485ca29-febb-542e-b1b3-0642eed00253' OR name='Free' OR slug='hyena-seed-free');
-INSERT INTO categories(id,name,slug) SELECT '81e616e2-dcf2-58d1-854a-647e5201f5d1','Cheap','hyena-seed-cheap' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='81e616e2-dcf2-58d1-854a-647e5201f5d1' OR name='Cheap' OR slug='hyena-seed-cheap');
-INSERT INTO categories(id,name,slug) SELECT '848fd536-6d98-515f-8aa8-7c4c0c1fc4b9','Community','hyena-seed-community' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='848fd536-6d98-515f-8aa8-7c4c0c1fc4b9' OR name='Community' OR slug='hyena-seed-community');
-INSERT INTO categories(id,name,slug) SELECT '8abf1ddf-fcfd-5e09-bc96-7dee1b9ffc6a','Movies','hyena-seed-movies' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='8abf1ddf-fcfd-5e09-bc96-7dee1b9ffc6a' OR name='Movies' OR slug='hyena-seed-movies');
-INSERT INTO categories(id,name,slug) SELECT '37bcca56-e10b-5bcf-aed5-690e352c45a2','Seasonal','hyena-seed-seasonal' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='37bcca56-e10b-5bcf-aed5-690e352c45a2' OR name='Seasonal' OR slug='hyena-seed-seasonal');
-INSERT INTO categories(id,name,slug) SELECT '0acada16-5370-5bb0-b5ac-2e70a6c467be','Unused Category','hyena-seed-unused-category' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE id='0acada16-5370-5bb0-b5ac-2e70a6c467be' OR name='Unused Category' OR slug='hyena-seed-unused-category');
-INSERT INTO categories(id,name,slug) SELECT 'e9d8a249-4259-4b2f-93dc-d75876f293da','Other','other' WHERE NOT EXISTS(SELECT 1 FROM categories WHERE name='Other' OR slug='other');
+INSERT INTO categories(slug, name, id) VALUES
+    ('entertainment', 'Entertainment', '38d06ae2-3b31-5827-87de-26ebfc42394b'),
+    ('arts', 'Arts', '5757c923-65a6-5d02-81e0-55991a596f1a'),
+    ('fitness', 'Fitness', 'a1b8987f-0634-4c18-beb2-adf278429aea'),
+    ('food', 'Food', '955c125a-00d4-5731-be1c-b06c9ba92710'),
+    ('family', 'Family', 'b995eb5e-188f-5308-a931-ae257f38f8e8'),
+    ('other', 'Other', 'e9d8a249-4259-4b2f-93dc-d75876f293da')
+ON CONFLICT DO NOTHING;
 COMMIT;
