@@ -194,7 +194,13 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
                 const location=row.payload.venue.proposal||row.business;
                 const past=require('../services/eventLifecycle').isPastSchedule(row.payload.event.schedule || {},now,location);
                 let occurrence=null;
-                try{occurrence=scheduleBounds({...row.payload.event.schedule,timeZone:row.payload.event.schedule?.timeZone || venueTimeZone(location)});}catch{}
+                try{
+                    const schedule={...row.payload.event.schedule,timeZone:row.payload.event.schedule?.timeZone || venueTimeZone(location)};
+                    if(schedule.kind==='WEEKLY'){
+                        occurrence=require('../services/recurrence').evaluateCandidates(
+                            [{...schedule,scheduleKind:'WEEKLY'}],{window:'all',limit:1},now).items[0]?.nextOccurrence || null;
+                    }else occurrence=scheduleBounds(schedule);
+                }catch{}
                 return {...row,fromFeed:fromFeed(row),past,occurrence};
             }).filter(row=>parsed.data.includePast==='true' || (!row.past && row.listingActive));
             const items=candidates.slice(0,50);
@@ -221,7 +227,7 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
                 }
                 res.json({item:await reviewSubmission(pool,id.data,status,req.admin.username,options,clock())});
             }
-            catch(error){if(error instanceof ReviewError)return res.status(error.status).json({error:{code:error.code,message:error.message,fields:error.fields}});logger.error('Review failed:',error.message);res.status(500).json({error:{code:'REVIEW_FAILED',message:'Unable to complete review. Reload and retry.'}});}
+            catch(error){if(error instanceof ReviewError)return res.status(error.status).json({error:{code:error.code,message:error.message,fields:error.fields,experienceId:error.experienceId}});logger.error('Review failed:',error.message);res.status(500).json({error:{code:'REVIEW_FAILED',message:'Unable to complete review. Reload and retry.'}});}
         });
     }
     router.use('/api',(req,res)=>res.status(404).json({error:{code:'NOT_FOUND',message:'Unknown administrator endpoint.'}}));
