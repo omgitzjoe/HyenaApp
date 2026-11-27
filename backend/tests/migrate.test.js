@@ -36,7 +36,7 @@ test('startup migrates an existing area database without losing venues, schedule
         await db.query("UPDATE businesses SET state='NY'");
         await migrate(pool);
         assert.equal((await db.query('SELECT state FROM businesses')).rows[0].state,'NY');
-        assert.equal((await db.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n,8);
+        assert.equal((await db.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n,9);
         assert.equal(releases,2);
     } finally { await db.close(); }
 });
