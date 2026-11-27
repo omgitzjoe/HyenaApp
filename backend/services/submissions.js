@@ -139,7 +139,7 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
             if(!editing || row.status==='APPROVED') {
                 const published=await publishExperience(client,{...event,businessId},editing?experienceId:null);
                 if(published.duplicate) {
-                    if(!options.automatic)throw new ReviewError(409,'DUPLICATE_EVENT','An event with this name, start time and venue is already published. Edit the existing listing instead.');
+                    if(!options.automatic)throw Object.assign(new ReviewError(409,'DUPLICATE_EVENT','An event with this title, venue and start time is already published. Edit the existing listing instead.'),{experienceId:published.id});
                     if(createdBusinessId){
                         const canonical=await client.query('SELECT business_id FROM experiences WHERE id=$1',[published.id]);
                         row.payload.venue={businessId:canonical.rows[0].business_id};

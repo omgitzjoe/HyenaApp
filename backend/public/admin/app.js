@@ -22,10 +22,11 @@ async function referenceData(){
     catch{notice('Reference names could not load. IDs are shown where needed; refresh to retry.');}
 }
 function tag(state){return element('span',state.toLowerCase(),`tag ${state.toLowerCase()}`);}
+const weekdayNames=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 function listingTime(row) {
     const schedule=row.payload.event.schedule || {};
     if(!row.occurrence)return 'Time needs review';
-    if(schedule.allDay)return schedule.startDate+' · All day';
+    if(schedule.allDay)return (row.occurrence.localDate || schedule.startDate)+' · All day';
     return new Date(row.occurrence.startsAt).toLocaleString('en-US',{hour12:true});
 }
 function renderQueue(){
@@ -80,7 +81,8 @@ async function select(id){
     const detail=$('detail');detail.replaceChildren(tag(row.status),element('h2',event.title,'detail-title'),element('p',event.description,'event-description'));
     const facts=element('div',undefined,'facts');
     facts.append(fact('VENUE',proposal?proposal.name+'\n'+[proposal.address,proposal.city,proposal.state].filter(Boolean).join(', ')+'\nProposed venue · '+(proposal.latitude??'Coordinates not provided')+', '+(proposal.longitude??''):row.business?row.business.name+'\n'+[row.business.address,row.business.city,row.business.state].filter(Boolean).join(', ')+(row.business.isActive?'':'\nInactive venue'):venue.businessId+'\nVenue unavailable'));
-    facts.append(fact('YOUR LOCAL TIME',row.occurrence?(s.allDay?'All Day at venue · ':'')+new Date(row.occurrence.startsAt).toLocaleString('en-US',{hour12:true})+(s.endTime?' – '+new Date(row.occurrence.endsAt).toLocaleString('en-US',{hour12:true}):''):'Verify the venue location to preview local times.'));
+    if(s.kind==='WEEKLY')facts.append(fact('REPEATS WEEKLY',(s.weekdays || []).map(day=>weekdayNames[day-1]).filter(Boolean).join(', ') || 'Choose weekdays'));
+    facts.append(fact(s.kind==='WEEKLY'?'NEXT OCCURRENCE · YOUR LOCAL TIME':'YOUR LOCAL TIME',row.occurrence?(s.allDay?'All Day at venue · ':'')+new Date(row.occurrence.startsAt).toLocaleString('en-US',{hour12:true})+(s.endTime?' – '+new Date(row.occurrence.endsAt).toLocaleString('en-US',{hour12:true}):''):'Verify the venue location to preview local times.'));
     if(event.sourceUrl) {
         const link=sourceLink(event.sourceUrl);
         if(link) detail.append(link);
@@ -113,8 +115,41 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
     const eventTitle=importField(eventFields,'Title',event.title);
     const descriptionLabel=element('label','Description (optional)');
     const description=element('textarea');description.value=event.description || '';description.maxLength=10000;descriptionLabel.append(description);eventFields.append(descriptionLabel);
+    const repeatsLabel=element('label','Repeat');
+    const repeat=element('select');
+    for(const [value,label] of [['ONCE','Does not repeat'],['WEEKLY','Weekly']]){
+        const option=element('option',label);option.value=value;repeat.append(option);
+    }
+    repeat.value=s.kind==='WEEKLY'?'WEEKLY':'ONCE';
+    let mode=repeat.value;
+    repeatsLabel.append(repeat);eventFields.append(repeatsLabel);
     const eventDate=importField(eventFields,'Start date',s.startDate || '','date');
     const eventEndDate=importField(eventFields,'End date',s.endDate || '','date');
+    const repeatDays=element('fieldset',undefined,'category-options');
+    repeatDays.append(element('legend','Repeat on'));
+    const dayInputs=weekdayNames.map((name,index)=>{
+        const label=element('label',name),input=element('input');
+        input.type='checkbox';input.value=String(index+1);input.checked=(s.weekdays || []).includes(index+1);
+        label.prepend(input);repeatDays.append(label);return input;
+    });
+    const repeatHelp=element('p','The first selected weekday on or after the start date is the first occurrence. Leave the end date blank to keep repeating.','muted time-help');
+    eventFields.append(repeatDays,repeatHelp);
+    const endDates={ONCE:'',WEEKLY:'',[mode]:eventEndDate.value};
+    function showRepeatMode(){
+        const weekly=repeat.value==='WEEKLY';
+        repeatDays.hidden=repeatHelp.hidden=!weekly;
+        eventEndDate.parentElement.firstChild.textContent=weekly?'End date (optional, last day of the series)':'End date';
+    }
+    repeat.addEventListener('change',()=>{
+        endDates[mode]=eventEndDate.value;
+        mode=repeat.value;eventEndDate.value=endDates[mode];
+        if(mode==='WEEKLY' && !dayInputs.some(input=>input.checked) && eventDate.value){
+            const day=new Date(eventDate.value+'T00:00:00Z').getUTCDay();
+            if(Number.isInteger(day))dayInputs[(day+6)%7].checked=true;
+        }
+        showRepeatMode();showTimeMode();
+    });
+    showRepeatMode();
     const eventStart=importField(eventFields,'Start time',s.startTime?.slice(0,5) || '','time');
     const eventEnd=importField(eventFields,'End time',s.endTime?.slice(0,5) || '','time');
     const allDayLabel=element('label','All day');
@@ -129,7 +164,9 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
         eventStart.disabled=eventEnd.disabled=allDay.checked;
         timeHelp.textContent=allDay.checked
             ? 'Uncheck All day to set a start or end time.'
-            : 'Times are local to the venue. For a one-time event that ends after midnight, select the next day as the end date.';
+            : repeat.value==='WEEKLY'
+                ? 'Times are local to the venue. If the end time is earlier than the start time, the event ends the next day.'
+                : 'Times are local to the venue. For a one-time event that ends after midnight, select the next day as the end date.';
     }
     allDay.addEventListener('change',showTimeMode);
     showTimeMode();
@@ -156,7 +193,7 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
         ['event.title',['Title',eventTitle]],['event.description',['Description',description]],
         ['event.schedule.startDate',['Start date',eventDate]],['event.schedule.endDate',['End date',eventEndDate]],
         ['event.schedule.startTime',['Start time',eventStart]],['event.schedule.endTime',['End time',eventEnd]],
-        ['event.schedule.weekdays',['Schedule']],['event.priceAmount',['Price',price]],
+        ['event.schedule.kind',['Repeat',repeat]],['event.schedule.weekdays',['Repeat on',dayInputs[0]]],['event.priceAmount',['Price',price]],
         ['event.sourceUrl',['Event website',website]],['event.categoryIds',['Categories']],
         ...editor.fields
     ]);
@@ -197,10 +234,10 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
             body.event={
                 sourceUrl:website.value.trim() || null,
                 title:eventTitle.value,description:description.value.trim() || null,priceAmount:price.value.trim() || null,categoryIds:categoryNames.size?categoryInputs.filter(x=>x.checked).map(x=>x.value):(event.categoryIds || []),
-                schedule:{kind:s.kind || 'ONCE',startDate:eventDate.value,endDate:eventEndDate.value || null,
+                schedule:{kind:repeat.value,startDate:eventDate.value,endDate:eventEndDate.value || null,
                     startTime:allDay.checked?null:eventStart.value || null,
                     endTime:allDay.checked?null:eventEnd.value || null,
-                    weekdays:s.weekdays || [],allDay:allDay.checked}
+                    weekdays:repeat.value==='WEEKLY'?dayInputs.filter(input=>input.checked).map(input=>Number(input.value)):[],allDay:allDay.checked}
             };
             try { const venueChange=editor.readChange(); if(venueChange) body.venue=venueChange; }
             catch(error) { showErrors('Nothing changed.',[{field:error.field || 'venue.proposal',message:error.message}]);return; }
@@ -223,6 +260,12 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
             showErrors(issues.length
                 ? (publishing?'Not published. Correct the fields below and try again.':'Changes were not saved. Correct the fields below and try again.')
                 : clearFailure ? error.message : 'Could not confirm the result. Refresh the queue before retrying.',issues);
+            if(error.code==='DUPLICATE_EVENT' && error.experienceId && errors.isConnected){
+                const link=element('a','View existing event');
+                link.href='/api/v1/experiences/'+encodeURIComponent(error.experienceId);
+                link.target='_blank';link.rel='noopener';
+                errors.append(element('br'),link);
+            }
             return;
         } finally {
             busy=false;approve.disabled=reject.disabled=false;
