@@ -216,11 +216,12 @@ function createAdminRouter({pool,env=process.env,logger=console,clock=()=>new Da
                         delete options.venue;
                     }
                     const valid=options.venue ? require('../validation/submission').proposalSchema.safeParse(options.venue.proposal) : {success:true};
-                    if (!valid.success) throw new ReviewError(400,'VENUE_INVALID','Check the venue address and coordinates.');
+                    if (!valid.success) throw new ReviewError(400,'VENUE_INVALID','Check the venue details.',
+                        valid.error.issues.slice(0,8).map(issue=>({field:['venue',...issue.path].join('.'),message:issue.message})));
                 }
                 res.json({item:await reviewSubmission(pool,id.data,status,req.admin.username,options,clock())});
             }
-            catch(error){if(error instanceof ReviewError)return res.status(error.status).json({error:{code:error.code,message:error.message}});logger.error('Review failed:',error.message);res.status(500).json({error:{code:'REVIEW_FAILED',message:'Unable to complete review. Reload and retry.'}});}
+            catch(error){if(error instanceof ReviewError)return res.status(error.status).json({error:{code:error.code,message:error.message,fields:error.fields}});logger.error('Review failed:',error.message);res.status(500).json({error:{code:'REVIEW_FAILED',message:'Unable to complete review. Reload and retry.'}});}
         });
     }
     router.use('/api',(req,res)=>res.status(404).json({error:{code:'NOT_FOUND',message:'Unknown administrator endpoint.'}}));
