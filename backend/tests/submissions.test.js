@@ -734,3 +734,80 @@ test('an ongoing weekly listing can be approved after its first occurrence',asyn
  assert.equal(result.status,200,JSON.stringify(result.body));
  assert.equal((await request('/api/v1/experiences/'+result.body.item.experienceId)).body.item.startTime,'19:00:00');
 });
+
+test('admin can make a one-time event weekly; each Monday shows one card for the same series',async()=>{
+ const body=event();
+ body.event.title='Monday series '+randomUUID().slice(0,8);
+ body.event.schedule={kind:'ONCE',startDate:'2040-04-02',endDate:'2040-04-02',startTime:'18:00',endTime:'20:00',
+  weekdays:[],timeZone:'America/Denver'};
+ const item=await submit(body);
+ const review='/admin/api/submissions/'+item.id+'/approve';
+ const missing=await request(review,{revision:0,event:{schedule:{kind:'WEEKLY',endDate:null,weekdays:[]}}},true);
+ assert.equal(missing.status,400);
+ assert.ok(missing.body.error.fields.some(issue=>issue.field==='event.schedule.weekdays'));
+ const short=await request(review,{revision:0,event:{schedule:{kind:'WEEKLY',endDate:'2040-04-02',weekdays:[2]}}},true);
+ assert.equal(short.status,400);
+ assert.ok(short.body.error.fields.some(issue=>issue.field==='event.schedule.endDate'));
+ const approved=await request(review,{revision:0,event:{schedule:{kind:'WEEKLY',endDate:null,weekdays:[1]}}},true);
+ assert.equal(approved.status,200,JSON.stringify(approved.body));
+ const id=approved.body.item.experienceId;
+ const search='/api/v1/experiences?latitude=43.8231&longitude=-111.7924&radiusMiles=10&timeZone=America%2FDenver&q='+encodeURIComponent(body.event.title);
+ const check=async(window,date,expected)=>{
+  const result=await request(search+'&window='+window+(date?'&date='+date:''));
+  assert.equal(result.status,200,JSON.stringify(result.body));
+  assert.deepEqual(result.body.items.map(row=>row.id),expected?[id]:[]);
+  if(date&&expected)assert.equal(result.body.items[0].nextOccurrence.localDate,date);
+ };
+ await check('all',null,true);
+ await check('date','2040-04-02',true);
+ await check('date','2040-04-09',true);
+ await check('date','2040-04-03',false);
+ const queue=await request('/admin/api/submissions?status=APPROVED&q='+encodeURIComponent(body.event.title),undefined,true);
+ assert.equal(queue.body.items[0].occurrence.localDate,'2040-04-02');
+});
+
+test('duplicate protection blocks overlapping weekly entries and matching one-offs, not distinct occurrences',async()=>{
+ const title='Weekly dedup '+randomUUID().slice(0,8);
+ async function stage(schedule){
+  const body=event();body.event.title=title;body.event.schedule={startTime:'18:00',endTime:'20:00',
+   timeZone:'America/Denver',allDay:false,endDate:null,...schedule};
+  const row=await submit(body);
+  return {row,result:await request('/admin/api/submissions/'+row.id+'/approve',{revision:0},true)};
+ }
+ const first=await stage({kind:'WEEKLY',startDate:'2040-04-02',endDate:'2040-04-30',weekdays:[1]});
+ assert.equal(first.result.status,200,JSON.stringify(first.result.body));
+ const id=first.result.body.item.experienceId;
+ const shifted=await stage({kind:'WEEKLY',startDate:'2040-04-09',endTime:'21:00',weekdays:[1,3]});
+ assert.equal(shifted.result.status,409);
+ assert.equal(shifted.result.body.error.code,'DUPLICATE_EVENT');assert.equal(shifted.result.body.error.experienceId,id);
+ assert.equal((await db.query('SELECT status FROM event_submissions WHERE id=$1',[shifted.row.id])).rows[0].status,'PENDING');
+ assert.equal((await stage({kind:'ONCE',startDate:'2040-04-16'})).result.status,409);
+ assert.equal((await stage({kind:'ONCE',startDate:'2040-04-17'})).result.status,200);
+ assert.equal((await stage({kind:'WEEKLY',startDate:'2040-04-17',weekdays:[2]})).result.status,409);
+ assert.equal((await stage({kind:'ONCE',startDate:'2040-04-16',startTime:'19:00'})).result.status,200);
+ assert.equal((await stage({kind:'WEEKLY',startDate:'2040-04-04',weekdays:[3]})).result.status,200);
+ assert.equal((await stage({kind:'WEEKLY',startDate:'2040-05-07',weekdays:[1]})).result.status,200);
+ assert.equal((await db.query('SELECT count(*)::int AS n FROM experiences WHERE title=$1',[title])).rows[0].n,5);
+});
+
+test('a single feed occurrence cannot overwrite or cancel a manually curated weekly series',async()=>{
+ const {snapshot,observe}=require('../services/feedChanges');
+ const body=event();
+ const receipt=await submit(body);
+ const approved=await reviewSubmission(pool,receipt.id,'APPROVED','reviewer');
+ const source={title:body.event.title,schedule:body.event.schedule,venue:'Open Studio',city:'Rexburg'};
+ const baseline=snapshot(source);
+ await reviewSubmission(pool,receipt.id,'EDIT','reviewer',{revision:1,event:{schedule:{kind:'WEEKLY',weekdays:[1],endDate:null}}});
+ const updates=[{schedule:{...source.schedule,startTime:'15:00',endTime:'16:00'}},{issue:'Cancelled by the source'}];
+ for(const update of updates){
+  await observe(pool,{...source,...update,submissionId:receipt.id,sourceSnapshot:baseline});
+  const alert=(await request('/admin/api/feed-changes',undefined,true)).body.items.find(x=>x.submissionId===receipt.id);
+  const response=await request('/admin/api/feed-changes/'+alert.id+'/apply',{submissionRevision:alert.submissionRevision},true);
+  assert.equal(response.status,409);
+  assert.match(response.body.error.message,/not the weekly series/);
+  const item=await request('/api/v1/experiences/'+approved.experienceId);
+  assert.equal(item.status,200);
+  assert.deepEqual(item.body.item.weekdays,[1]);
+  assert.equal(item.body.item.startTime,'18:00:00');
+ }
+});
