@@ -79,16 +79,26 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
             if(row.status===action) {if(owns)await client.query('COMMIT');started=false;return {id:row.id,status:row.status,experienceId:row.published_experience_id};}
             throw new ReviewError(409,'ALREADY_REVIEWED','This submission has already been reviewed. Reload the queue.');
         }
+        const venueChanged = Boolean(options.venue ||
+            (options.businessId && options.businessId !== row.payload.venue.businessId) ||
+            options.latitude !== undefined);
         if (options.venue) row.payload = {...row.payload,venue:options.venue};
         let experienceId=editing?row.published_experience_id:null;
         if(action==='APPROVED' || editing) {
             const updated={...row.payload.event,...options.event};
+            if (options.event?.schedule && typeof options.event.schedule === 'object' && !Array.isArray(options.event.schedule)) {
+                updated.schedule={...row.payload.event.schedule,...options.event.schedule};
+            }
+            if (venueChanged && updated.schedule && !Object.hasOwn(options.event?.schedule || {},'timeZone')) {
+                updated.schedule={...updated.schedule,timeZone:null};
+            }
             const valid=parseSubmission({
                 clientRequestId:row.client_request_id,
                 venue:{businessId:row.payload.venue.businessId || '00000000-0000-4000-8000-000000000000'},
                 event:updated
             });
-            if (!valid.success) throw new ReviewError(400,'EVENT_DETAILS_REQUIRED',valid.error.issues.slice(0,3).map(issue=>issue.path.join('.')+': '+issue.message).join(' '));
+            if (!valid.success) throw new ReviewError(400,'EVENT_DETAILS_REQUIRED','Check the highlighted event details.',
+                valid.error.issues.slice(0,8).map(issue=>({field:issue.path.join('.'),message:issue.message})));
             row.payload={...row.payload,event:valid.data.payload.event};
             let createdBusinessId=null;
             let businessId=options.businessId||row.payload.venue.businessId;
@@ -97,7 +107,8 @@ async function reviewSubmission(pool,id,action,username,options={},now=new Date(
                     ...row.payload.venue.proposal,
                     ...(options.latitude!==undefined?{latitude:options.latitude,longitude:options.longitude}:{})
                 });
-                if(!validation.success)throw new ReviewError(400,'VENUE_LOCATION_REQUIRED','Provide city and state, or valid coordinates.');
+                if(!validation.success)throw new ReviewError(400,'VENUE_LOCATION_REQUIRED','Check the venue details.',
+                    validation.error.issues.slice(0,8).map(issue=>({field:['venue',...issue.path].join('.'),message:issue.message})));
                 const proposed=validation.data;
                 row.payload.venue={proposal:proposed};
                 const key=[proposed.name,proposed.address,proposed.city].map(value=>String(value).trim().toLowerCase()).join('|');
