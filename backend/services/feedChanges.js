@@ -39,6 +39,11 @@ async function resolveChange(pool,id,action,username,{submissionRevision},venueL
   const stored=await client.query('SELECT * FROM event_submissions WHERE id=$1 FOR UPDATE',[change.submission_id]);const row=stored.rows[0];
   if(row.revision!==submissionRevision)throw new ReviewError(409,'EDIT_CONFLICT','This listing changed. Refresh before applying a source update.');
   if(action==='apply'){
+   if(row.payload.event.schedule?.kind==='WEEKLY' && change.incoming.schedule?.kind!=='WEEKLY' &&
+      (change.kind==='CANCELLATION' || signature(change.previous.schedule)!==signature(change.incoming.schedule))){
+    throw new ReviewError(409,'RECURRING_SERIES_REVIEW',
+     'This update applies to one source occurrence, not the weekly series. Review the series before changing it.');
+   }
    if(change.kind==='CANCELLATION'){
     if(row.status==='APPROVED')await reviewSubmission(pool,row.id,'PENDING',username,{},now,client);
     if(row.status!=='REJECTED')await reviewSubmission(pool,row.id,'REJECTED',username,{},now,client);
