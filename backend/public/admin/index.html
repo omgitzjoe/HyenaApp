@@ -5,7 +5,7 @@
 <header class="topbar"><a class="brand" href="/admin/"><span class="mark">H</span> HYENA <span class="admin-label">ADMINISTRATION</span></a><div id="account" hidden><span id="username"></span><button id="logout" class="quiet">Sign out</button></div></header>
 <main>
 <section id="login-view" class="login-card"><span class="eyebrow">CURATOR ACCESS</span><h1>A little review.<br>A better local experience.</h1><p>Review community submissions before they go public.</p><form id="login-form"><label>Administrator username<input id="login-username" autocomplete="username" maxlength="100" required></label><label>Password<input id="login-password" type="password" autocomplete="current-password" maxlength="256" required></label><button class="primary" id="login-button">Sign in</button></form><p class="muted">Administrator access is configured on the server. No curator API key is used in this browser.</p></section>
-<div id="notice" role="status" aria-live="polite"></div>
+<div id="notice" tabindex="-1" role="status" aria-live="polite"></div>
 <section id="review-view" hidden>
 <div class="page-heading"><div><span class="eyebrow">COMMUNITY → DISCOVERY</span><h1>Community calendar</h1><p>Review community submissions, edit listings, and keep upcoming events accurate.</p></div><button id="refresh">Refresh queue</button></div>
 <nav class="tabs" aria-label="Submission status"><button data-status="PENDING" class="active">Pending</button><button data-status="APPROVED">Approved</button><button data-status="REJECTED">Rejected</button></nav>
