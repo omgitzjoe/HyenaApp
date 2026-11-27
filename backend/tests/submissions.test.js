@@ -679,3 +679,58 @@ test('a source change that reappears after reverting reopens its alert',async()=
  const rows=(await db.query('SELECT status FROM feed_changes WHERE submission_id=$1',[item.id])).rows;
  assert.equal(rows.length,1);assert.equal(rows[0].status,'OPEN');
 });
+
+test('approve applies a time edit and moves the listing atomically; invalid time leaves Pending untouched',async()=>{
+ const original=event();
+ const item=await submit(original);
+ const review='/admin/api/submissions/'+item.id+'/approve';
+ const [before]=(await db.query('SELECT status,payload,revision,published_experience_id FROM event_submissions WHERE id=$1',[item.id])).rows;
+ const invalid=await request(review,{revision:before.revision,event:{title:'Should not be saved',
+  schedule:{startTime:'21:30',endTime:'20:30'}}},true);
+ assert.equal(invalid.status,400);
+ assert.equal(invalid.body.error.code,'EVENT_DETAILS_REQUIRED');
+ assert.ok(invalid.body.error.fields.some(x=>x.field==='event.schedule.endTime'));
+ const [afterFailure]=(await db.query('SELECT status,payload,revision,published_experience_id FROM event_submissions WHERE id=$1',[item.id])).rows;
+ assert.deepEqual(afterFailure,before);
+ assert.equal((await db.query("SELECT count(*)::int AS n FROM experiences WHERE title IN ($1,'Should not be saved')",[original.event.title])).rows[0].n,0);
+ const approved=await request(review,{revision:before.revision,event:{schedule:{startTime:'19:30',endTime:'21:30'}}},true);
+ assert.equal(approved.status,200,JSON.stringify(approved.body));
+ assert.equal(approved.body.item.status,'APPROVED');
+ const published=await request('/api/v1/experiences/'+approved.body.item.experienceId);
+ assert.equal(published.status,200);
+ assert.equal(published.body.item.startTime,'19:30:00');
+ assert.equal(published.body.item.endTime,'21:30:00');
+ const search='&q='+encodeURIComponent(original.event.title);
+ const pending=await request('/admin/api/submissions?status=PENDING'+search,undefined,true);
+ const approvedQueue=await request('/admin/api/submissions?status=APPROVED'+search,undefined,true);
+ assert.ok(!pending.body.items.some(x=>x.id===item.id));
+ assert.equal(approvedQueue.body.items.find(x=>x.id===item.id).payload.event.schedule.startTime,'19:30:00');
+});
+
+test('an approved time-only edit keeps the listing ID and the stored venue time zone',async()=>{
+ const original=event();
+ original.event.schedule.timeZone='America/Los_Angeles';
+ const item=await submit(original);
+ const approved=await request('/admin/api/submissions/'+item.id+'/approve',{revision:0},true);
+ assert.equal(approved.status,200);
+ const id=approved.body.item.experienceId;
+ const edited=await request('/admin/api/submissions/'+item.id+'/edit',{revision:1,
+  event:{schedule:{startTime:'19:45',endTime:'22:00'}}},true);
+ assert.equal(edited.status,200,JSON.stringify(edited.body));
+ assert.equal(edited.body.item.experienceId,id);
+ const listing=await request('/api/v1/experiences/'+id);
+ assert.equal(listing.body.item.startTime,'19:45:00');
+ const [saved]=(await db.query('SELECT time_zone FROM experience_schedules WHERE experience_id=$1',[id])).rows;
+ assert.equal(saved.time_zone,'America/Los_Angeles');
+});
+
+test('an ongoing weekly listing can be approved after its first occurrence',async()=>{
+ const recurring=event();
+ const date=offset=>new Date(Date.now()+offset*86400000).toISOString().slice(0,10);
+ recurring.event.schedule={kind:'WEEKLY',startDate:date(-21),endDate:date(21),startTime:'18:00',endTime:'20:00',
+  weekdays:[3],timeZone:'America/Denver'};
+ const item=await submit(recurring);
+ const result=await request('/admin/api/submissions/'+item.id+'/approve',{revision:0,event:{schedule:{startTime:'19:00'}}},true);
+ assert.equal(result.status,200,JSON.stringify(result.body));
+ assert.equal((await request('/api/v1/experiences/'+result.body.item.experienceId)).body.item.startTime,'19:00:00');
+});
