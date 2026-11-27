@@ -68,3 +68,9 @@ main{max-width:1560px}
 .bulk-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 0}
 #bulk-editor{display:grid;gap:14px;margin-bottom:20px;padding:20px;border:1px solid var(--line);border-radius:12px;background:white}
 #feed-changes-panel{margin-bottom:20px;max-height:none}.feed-change{display:grid;gap:16px;padding:20px 0;border-top:1px solid var(--line)}
+
+.time-help { margin:0; }
+.review-errors:empty, .review-progress:empty { display:none; }
+.review-errors { padding:12px 14px; border:1px solid #c47167; border-radius:8px; background:#fff2ed; color:#762d29; }
+.review-errors ul { margin:6px 0 0; padding-inline-start:22px; }
+.review-actions [aria-invalid="true"] { border-color:#a43c37; }

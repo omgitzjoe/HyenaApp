@@ -1,9 +1,8 @@
 const { z } = require('zod');
 const { createExperienceSchema } = require('./experience');
 const { occurrenceBounds } = require('../services/recurrence');
-const { asInstant } = require('../services/recurrence');
+const { isPastSchedule } = require('../services/eventLifecycle');
 const { ReviewError } = require('../services/publishExperience');
-const { Temporal } = require('@js-temporal/polyfill');
 const text=max=>z.string().trim().min(1).max(max);
 const optional=max=>z.string().trim().max(max).nullable().default(null);
 const proposal=z.preprocess(value=>{if(!value || typeof value!=='object')return value;const p={...value};if(p.region && !p.state)p.state=p.region;delete p.region;return p;},z.strictObject({
@@ -23,7 +22,6 @@ function parseSubmission(input){
 }
 function scheduleBounds(schedule){return occurrenceBounds({...schedule,scheduleKind:schedule.kind},schedule.startDate);}
 function ensureUnexpired(event,now=new Date()){
- const bounds=scheduleBounds(event.schedule);
- if(Temporal.Instant.compare(bounds.endsAt,asInstant(now))<=0)throw new ReviewError(400,'EVENT_ENDED','The event must be in the future or currently happening.');
+ if(isPastSchedule(event.schedule,now))throw new ReviewError(400,'EVENT_ENDED','The event must be in the future or currently happening.', [{field:'event.schedule.startDate',message:'Check the start and end dates: this event has already ended.'}]);
 }
 module.exports={parseSubmission,proposalSchema:proposal,ensureUnexpired,scheduleBounds};

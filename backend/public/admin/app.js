@@ -9,7 +9,10 @@ async function api(path,options={}){
     const generation=authGeneration;
     const response=await fetch(path,{...options,credentials:'same-origin',headers:{'Content-Type':'application/json',...(csrf?{'X-CSRF-Token':csrf}:{}),...options.headers}});
     let data;try{data=await response.json();}catch{throw Error('Unexpected server response. Check the backend deployment.');}
-    if(!response.ok){if(response.status===401&&path!=='/admin/api/login'&&generation===authGeneration)showLogin();throw Error(data.error?.message||'Request failed.');}
+    if(!response.ok){
+        if(response.status===401&&path!=='/admin/api/login'&&generation===authGeneration)showLogin();
+        throw Object.assign(new Error(data.error?.message||'Request failed.'),data.error,{status:response.status});
+    }
     return data;
 }
 function showLogin(){feedChanges=[];feedChangeErrors.clear();$('feed-changes').replaceChildren();$('feed-changes-status').textContent='';setFeedChangesBusy(false);bulkSelection.clear();authGeneration++;csrf='';rows=[];selectedId=null;$('review-view').hidden=true;$('account').hidden=true;$('login-view').hidden=false;$('queue').replaceChildren();$('detail').replaceChildren();$('imports').replaceChildren();}
@@ -120,6 +123,16 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
     allDay.checked=Boolean(s.allDay);
     allDayLabel.prepend(allDay);
     eventFields.append(allDayLabel);
+    const timeHelp=element('p',undefined,'muted time-help');
+    eventFields.append(timeHelp);
+    function showTimeMode(){
+        eventStart.disabled=eventEnd.disabled=allDay.checked;
+        timeHelp.textContent=allDay.checked
+            ? 'Uncheck All day to set a start or end time.'
+            : 'Times are local to the venue. For a one-time event that ends after midnight, select the next day as the end date.';
+    }
+    allDay.addEventListener('change',showTimeMode);
+    showTimeMode();
     const price=importField(eventFields,'Price in USD (optional; 0 = Free)',event.priceAmount ?? '','number');
     price.min='0';price.step='0.01';
     const website=importField(eventFields,'Event website (optional)',event.sourceUrl || '','url');
@@ -131,38 +144,108 @@ detail.append(element('p','Reviewed by '+row.reviewedBy+' · '+new Date(row.revi
     }
     eventFields.append(categories);
     actions.append(eventFields);
-    const editor=venueEditor(actions, proposal || row.business || {});
+    const editor=venueEditor(actions, proposal || row.business || {}, Boolean(proposal));
     const fromFeed = row.fromFeed === true;
     const approve=element('button',row.status==='APPROVED'?'Save published changes':'Approve & publish','primary');
-    const save=element('button','Save pending changes');
     const reject=element('button',fromFeed ? 'Reject & hide from feed' : 'Reject submission','danger');
+    const errors=element('div',undefined,'review-errors');
+    errors.setAttribute('role','alert');errors.tabIndex=-1;
+    const progress=element('div',undefined,'review-progress');
+    progress.setAttribute('role','status');
+    const fields=new Map([
+        ['event.title',['Title',eventTitle]],['event.description',['Description',description]],
+        ['event.schedule.startDate',['Start date',eventDate]],['event.schedule.endDate',['End date',eventEndDate]],
+        ['event.schedule.startTime',['Start time',eventStart]],['event.schedule.endTime',['End time',eventEnd]],
+        ['event.schedule.weekdays',['Schedule']],['event.priceAmount',['Price',price]],
+        ['event.sourceUrl',['Event website',website]],['event.categoryIds',['Categories']],
+        ...editor.fields
+    ]);
+    function clearErrors(){
+        errors.replaceChildren();
+        for(const [,input] of fields.values())input?.removeAttribute('aria-invalid');
+    }
+    function showErrors(message,issues=[]){
+        if(!errors.isConnected){notice(message);return;}
+        clearErrors();
+        errors.append(element('strong',message));
+        if(issues.length){
+            const list=element('ul');
+            for(const issue of issues){
+                const [label,input]=fields.get(issue.field) || [issue.field?.startsWith('venue')?'Venue':'Event details'];
+                input?.setAttribute('aria-invalid','true');
+                list.append(element('li',label+': '+issue.message));
+            }
+            errors.append(list);
+        }
+        errors.focus();
+    }
+    const issueForCode={
+        INVALID_BUSINESS:'venue.businessId',VENUE_INVALID:'venue.proposal',
+        VENUE_REQUIRED:'venue.proposal.name',VENUE_AMBIGUOUS:'venue.proposal',
+        LOOKUP_BUSY:'venue.proposal',LOOKUP_UNAVAILABLE:'venue.proposal',INVALID_CATEGORIES:'event.categoryIds'
+    };
     async function decision(action){
         if(busy)return;
+        clearErrors();notice();
         const body={revision:row.revision};
-        if(action!=='reject' && price.value.trim() && !/^(0|[1-9]\d{0,7})(\.\d{1,2})?$/.test(price.value.trim())){notice('Enter a nonnegative price with up to two decimal places, or leave it blank.');price.focus();return;}
-        if(action==='approve' || action==='edit') body.event={
-            sourceUrl:website.value.trim() || null,
-            title:eventTitle.value,description:description.value.trim() || null,priceAmount:price.value.trim() || null,categoryIds:categoryNames.size?categoryInputs.filter(x=>x.checked).map(x=>x.value):(event.categoryIds || []),
-            schedule:{...s,kind:s.kind || 'ONCE',startDate:eventDate.value,endDate:eventEndDate.value || null,
-                startTime:allDay.checked?null:eventStart.value || null,
-                endTime:allDay.checked?null:eventEnd.value || null,
-                timeZone:null,weekdays:s.weekdays || [],
-                allDay:allDay.checked}
-        };
-        if ((action==='approve' || action==='edit') && editor) {
-            try { body.venue=editor.read(); }
-            catch(error) { notice(error.message); return; }
+        const publishing=action==='approve';
+        if(action!=='reject'){
+            if(price.validity.badInput || (price.value.trim() && !/^(0|[1-9]\d{0,7})(\.\d{1,2})?$/.test(price.value.trim()))){
+                showErrors('Nothing changed.',[{field:'event.priceAmount',message:'Enter a nonnegative price with up to two decimal places, or leave it blank.'}]);
+                return;
+            }
+            body.event={
+                sourceUrl:website.value.trim() || null,
+                title:eventTitle.value,description:description.value.trim() || null,priceAmount:price.value.trim() || null,categoryIds:categoryNames.size?categoryInputs.filter(x=>x.checked).map(x=>x.value):(event.categoryIds || []),
+                schedule:{kind:s.kind || 'ONCE',startDate:eventDate.value,endDate:eventEndDate.value || null,
+                    startTime:allDay.checked?null:eventStart.value || null,
+                    endTime:allDay.checked?null:eventEnd.value || null,
+                    weekdays:s.weekdays || [],allDay:allDay.checked}
+            };
+            try { const venueChange=editor.readChange(); if(venueChange) body.venue=venueChange; }
+            catch(error) { showErrors('Nothing changed.',[{field:error.field || 'venue.proposal',message:error.message}]);return; }
         }
-        busy=true;approve.disabled=reject.disabled=save.disabled=true;
-        try{await api('/admin/api/submissions/'+id+'/'+action,{method:'POST',body:JSON.stringify(body)});notice(action==='edit'?'Changes saved.':action==='approve'?'Approved. This experience is now public.':'Submission rejected.',true);busy=false;await loadQueue();}
-        catch(error){notice(error.message);}finally{busy=false;approve.disabled=reject.disabled=save.disabled=false;}
+        busy=true;approve.disabled=reject.disabled=true;
+        eventFields.disabled=editor.fieldset.disabled=true;
+        progress.textContent=publishing?'Publishing…':action==='edit'?'Saving…':'Rejecting…';
+        let result;
+        try {
+            result=await api('/admin/api/submissions/'+id+'/'+action,{method:'POST',body:JSON.stringify(body)});
+            const expected=action==='reject'?'REJECTED':'APPROVED';
+            if(result.item?.status!==expected || (expected==='APPROVED' && !result.item.experienceId)){
+                throw Error('Could not confirm the result. Refresh the queue before retrying.');
+            }
+        } catch(error) {
+            eventFields.disabled=editor.fieldset.disabled=false;
+            const key=issueForCode[error.code];
+            const issues=error.fields?.length?error.fields:key?[{field:key,message:error.message}]:[];
+            const clearFailure=error.status>=400&&error.status<500 || Boolean(issues.length);
+            showErrors(issues.length
+                ? (publishing?'Not published. Correct the fields below and try again.':'Changes were not saved. Correct the fields below and try again.')
+                : clearFailure ? error.message : 'Could not confirm the result. Refresh the queue before retrying.',issues);
+            return;
+        } finally {
+            busy=false;approve.disabled=reject.disabled=false;
+            eventFields.disabled=editor.fieldset.disabled=false;progress.textContent='';
+        }
+        if(publishing || action==='reject'){
+            rows=rows.filter(item=>item.id!==id);selectedId=rows[0]?.id||null;
+            renderQueue();if(selectedId)await select(selectedId);
+        }
+        const outcome=publishing?'Published. This event moved from Pending to Approved.':action==='edit'?'Published changes saved.':'Submission rejected.';
+        await loadQueue();
+        notice(outcome,true);$('notice').focus();
     }
     approve.addEventListener('click',()=>decision(row.status==='APPROVED'?'edit':'approve'));
-    save.addEventListener('click',()=>decision('edit'));reject.addEventListener('click',()=>decision('reject'));
+    reject.addEventListener('click',()=>decision('reject'));
     const buttons=element('div',undefined,'button-row');buttons.append(approve);
-    if(row.status==='PENDING')buttons.append(save,reject);
-    actions.append(buttons);detail.append(actions);
+    if(row.status==='PENDING'){
+        actions.append(element('p','Edits are applied only when the event is published.','muted time-help'));
+        buttons.append(reject);
+    }
+    actions.append(errors,buttons,progress);detail.append(actions);
 }
+
 $('login-form').addEventListener('submit',async event=>{event.preventDefault();$('login-button').disabled=true;notice();try{const session=await api('/admin/api/login',{method:'POST',body:JSON.stringify({username:$('login-username').value,password:$('login-password').value})});$('login-password').value='';showReview(session);await referenceData();await loadQueue();await loadReports();await loadFeedChanges();}catch(error){notice(error.message);}finally{$('login-button').disabled=false;}});
 $('logout').addEventListener('click',async()=>{try{await api('/admin/api/logout',{method:'POST',body:'{}'});showLogin();notice('Signed out.',true);}catch(error){notice(error.message);}});
 $('refresh').addEventListener('click',async()=>{notice();await referenceData();await loadQueue();await loadReports();await loadFeedChanges();});$('more').addEventListener('click',()=>loadQueue(true));
@@ -309,7 +392,7 @@ $('imports-sync').addEventListener('click', async () => {
 });
 
 
-function venueEditor(parent, initial = {}) {
+function venueEditor(parent, initial = {}, proposedVenue = false) {
     const fieldset=element('fieldset');
     fieldset.append(element('legend','Venue'));
     const query=importField(fieldset,'Search a venue or address');
@@ -338,17 +421,19 @@ function venueEditor(parent, initial = {}) {
     coordinates.hidden=true;
     const latitude=importField(coordinates,'Latitude',initial.latitude ?? '','number');
     const longitude=importField(coordinates,'Longitude',initial.longitude ?? '','number');
-    latitude.min='-90';latitude.max='90';longitude.min='-180';longitude.max='180';
+    latitude.min='-90';latitude.max='90';latitude.step='any';
+    longitude.min='-180';longitude.max='180';longitude.step='any';
     fieldset.append(coordinates);
     let selected=Number.isFinite(initial.latitude) && Number.isFinite(initial.longitude);
     let selectedBusiness=initial.id;
+    let edited=false;
     for (const input of [name,address,city,state]) input.addEventListener('input',()=>{
-        selected=false;
+        edited=true;selected=false;
         selectedBusiness=null;
     });
     toggle.addEventListener('change',()=>{
         coordinates.hidden=!toggle.checked;
-        selected=false;
+        edited=true;selected=false;
         selectedBusiness=null;
     });
     let timer;
@@ -378,7 +463,7 @@ function venueEditor(parent, initial = {}) {
                         state.value=place.state || 'ID';
                         latitude.value=place.latitude;
                         longitude.value=place.longitude;
-                        selected=true;
+                        edited=true;selected=true;
                         selectedBusiness=place.businessId;
                         results.replaceChildren(element('p','Selected '+place.label));
                     });
@@ -390,14 +475,26 @@ function venueEditor(parent, initial = {}) {
         },650);
     });
     parent.append(fieldset);
+    const fields=[
+        ['venue.proposal.name',['Venue name',name]],['venue.name',['Venue name',name]],
+        ['venue.proposal',['Venue',query]],['venue',['Venue',query]],['venue.businessId',['Venue',query]],
+        ['venue.latitude',['Latitude',latitude]],['venue.longitude',['Longitude',longitude]],
+        ['venue.city',['City',city]],['venue.state',['State',state]]
+    ];
+    function invalid(field,message){throw Object.assign(new Error(message),{field});}
     return {
+        fields,fieldset,readChange(){
+            if (edited) return this.read();
+            // Keep resolving unlocated proposals as before, without redoing a confirmed venue.
+            return proposedVenue && !selected ? {proposal:initial} : undefined;
+        },
         read() {
             if(selectedBusiness)return {businessId:selectedBusiness};
             if(toggle.checked && (!latitude.value || !longitude.value || !latitude.checkValidity() || !longitude.checkValidity())) {
-                throw Error('Enter valid latitude and longitude.');
+                invalid(!latitude.value || !latitude.checkValidity()?'venue.latitude':'venue.longitude','Enter valid latitude and longitude.');
             }
             if(!toggle.checked && !selected && (!city.value.trim() || !state.value.trim())) {
-                throw Error('Enter city and state or select a venue.');
+                invalid(!city.value.trim()?'venue.city':'venue.state','Enter city and state or select a venue.');
             }
             const proposal={
                 name:name.value.trim() || address.value.trim() || 'Event venue',
